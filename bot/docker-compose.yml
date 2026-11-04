@@ -25,6 +25,7 @@ services:
       - ./experiments_r12.json:/app/experiments_r12.json
       - ./experiments_r13.json:/app/experiments_r13.json
       - ./experiments_r15.json:/app/experiments_r15.json
+      - ./experiments_r17.json:/app/experiments_r17.json
       - ./results_dk:/app/results_dk
     profiles: ["tools"]
 

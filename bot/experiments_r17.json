@@ -1,0 +1,4 @@
+{"_about": "Round 17: four liquidity strategies (A pool-to-pool, B IFVG, C D1/H4 gap POI, D D1 sweep + M15 shift) were judged by pre-registered stage-0 gates on the v6 candidates log; none adds trades, so no new code. This file only runs the C filter through the existing poi_tfs knob (POI must be an H4 zone).", "preset": "v6", "base": {}, "modes": "c", "variants": [
+ {"name": "V6", "group": "control", "why": "v6 as published (control)", "params": {}},
+ {"name": "C_POI4H", "group": "filter", "why": "POI only on H4 (round 17 strategy C as a filter)", "params": {"poi_tfs": ["4h"]}}
+]}
