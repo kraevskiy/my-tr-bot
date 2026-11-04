@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smcbot"
+version = "3.2.0"
+description = "ICT/SMC trading bot for EURUSD/GBPUSD: signals, M1 backtester, research tools"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.2", "numpy>=2.0", "requests>=2.31", "dukascopy-python==4.0.1",
+                "tabulate>=0.9", "scipy>=1.14", "matplotlib>=3.9"]
+
+[project.optional-dependencies]
+mt5 = ["MetaTrader5>=5.0.6231"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+smcbot = "smcbot.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["smcbot*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

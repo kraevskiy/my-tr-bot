@@ -1,0 +1,15 @@
+{"_about": "Round 11: hypotheses from the v5 slice analysis; judge on IS (<=2025) t>=2, confirm on OOS 2026 (w_avgR and w_maxDD_R not worse than V5), better in >=2 of 3 years.",
+ "preset": "v5", "base": {}, "modes": "c",
+ "variants": [
+  {"name": "V5", "group": "control", "why": "v5 as published", "params": {}, "log": true},
+  {"name": "V5_CORE", "group": "control", "why": "v4 + cont 12h, no AF", "params": {"asia_fake": false}},
+  {"name": "H1_A_ONLY", "group": "dd", "why": "drop grade B (B: 51 trades, +7.8 Rw)", "params": {"grade_mode": "a_only"}, "log": true},
+  {"name": "H2_AF_EUR", "group": "af", "why": "AF on EURUSD only (GBPUSD AF +9 Rw / 91 trades)", "params": {"af_symbols": ["EURUSD"]}, "log": true},
+  {"name": "H2_AF_RM025", "group": "af", "why": "AF risk x0.25", "params": {"af_risk_mult": 0.25}},
+  {"name": "H3a_EXT_ASIA", "group": "more", "why": "add Asia window 19:00-24:00 NY", "params": {"killzone_set": "ext_asia"}, "log": true},
+  {"name": "H3b_NO_POI", "group": "more", "why": "no POI/MAJOR requirement", "params": {"require_poi_or_major": false}, "log": true},
+  {"name": "H3c_ASIA_HALF", "group": "more", "why": "STRATEGY.md candidate: no POI + Asia window at x0.5 risk", "params": {"killzone_set": "ext_asia", "require_poi_or_major": false, "kz_risk_mult": {"ASIA": 0.5}}, "log": true},
+  {"name": "H3d_ASIA_HALF_POI", "group": "more", "why": "Asia window at x0.5 risk, POI kept", "params": {"killzone_set": "ext_asia", "kz_risk_mult": {"ASIA": 0.5}}, "log": true},
+  {"name": "H6_CONT288", "group": "more", "why": "S11 continuation window 24h (stage-A limit)", "params": {"cont_window_bars": 288}, "log": true},
+  {"name": "H7_NO_CORR", "group": "risk", "why": "drop the same-direction cross-pair block (18 blocked signals, shadow +0.9R each)", "params": {"block_same_direction": false}, "log": true}
+ ]}

@@ -1,0 +1,96 @@
+{
+ "_about": "Round 12: external research -> IS diagnostics; stage-B hypotheses (FIX/SIDE/ROUND/DISP/AFPART) failed their pre-registered IS gates and were not coded. Run: fill-realism stress (reported, not judged), CORR2 half-size second pair (gate missed on n by one; knob existed; H7 passed in r11), and the K-block of untested v0.7 knobs. Judge: IS (<=2025) t>=2 on R_w; OOS 2026 w_avgR and w_maxDD not worse than V5; better in >=2 of 3 years.",
+ "preset": "v5",
+ "base": {},
+ "modes": "c",
+ "variants": [
+  {
+   "name": "V5",
+   "group": "control",
+   "why": "v5 as published",
+   "params": {},
+   "log": true
+  },
+  {
+   "name": "V5_CORE",
+   "group": "control",
+   "why": "v4 + cont 12h, no AF",
+   "params": {
+    "asia_fake": false
+   }
+  },
+  {
+   "name": "R12_FILL02",
+   "group": "stress",
+   "why": "limit must trade through by 0.2 pip",
+   "params": {
+    "fill_through_pips": 0.2
+   }
+  },
+  {
+   "name": "R12_FILL05",
+   "group": "stress",
+   "why": "limit must trade through by 0.5 pip",
+   "params": {
+    "fill_through_pips": 0.5
+   }
+  },
+  {
+   "name": "R12_CORR2_50",
+   "group": "risk",
+   "why": "second same-direction pair at x0.5 instead of block",
+   "params": {
+    "corr_second_risk_mult": 0.5
+   },
+   "log": true
+  },
+  {
+   "name": "R12_K_BIAS_NONE",
+   "group": "k",
+   "why": "no H4 bias requirement",
+   "params": {
+    "bias_mode": "none"
+   }
+  },
+  {
+   "name": "R12_K_BIAS_CANDLE",
+   "group": "k",
+   "why": "L39 daily candle bias instead of H4",
+   "params": {
+    "bias_mode": "daily_candle"
+   }
+  },
+  {
+   "name": "R12_K_M15",
+   "group": "k",
+   "why": "M15 must align (hard filter)",
+   "params": {
+    "require_m15_align": true
+   }
+  },
+  {
+   "name": "R12_K_AVOIDC",
+   "group": "k",
+   "why": "skip if daily candle model against",
+   "params": {
+    "avoid_candle_against": true
+   }
+  },
+  {
+   "name": "R12_K_DELAY60",
+   "group": "k",
+   "why": "sweep->signal <= 60 min (hard filter)",
+   "params": {
+    "max_delay_min": 60
+   }
+  },
+  {
+   "name": "R12_K_SESSPOOL",
+   "group": "k",
+   "why": "London H/L as MEDIUM pools",
+   "params": {
+    "session_pools": true
+   }
+  }
+ ]
+}

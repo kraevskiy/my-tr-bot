@@ -1,0 +1,8 @@
+pandas==3.0.5
+numpy==2.5.3
+requests>=2.31
+dukascopy-python==4.0.1
+pytest>=8
+tabulate>=0.9
+scipy>=1.14
+matplotlib>=3.9

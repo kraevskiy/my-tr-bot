@@ -1,0 +1,48 @@
+# All services run the same image with a different command:  python -m smcbot <command>
+x-bot: &bot
+  image: smcbot:latest
+  env_file: .env
+  volumes:
+    - ./data:/app/data            # MT5 CSV exports, Dukascopy cache, news calendar
+    - ./results:/app/results      # everything the bot writes
+
+services:
+  backtest:                       # docker compose run --rm backtest
+    <<: *bot
+    build: .
+    entrypoint: ["python", "-m", "smcbot", "backtest"]
+    command: []
+
+  experiments:                    # docker compose run --rm experiments
+    <<: *bot
+    entrypoint: ["python", "-m", "smcbot", "experiments"]
+    command: []
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./experiments.json:/app/experiments.json
+    profiles: ["tools"]
+
+  analyze:                        # docker compose run --rm analyze /app/results/<run_id> V4
+    <<: *bot
+    entrypoint: ["python", "-m", "smcbot", "analyze"]
+    command: []
+    profiles: ["tools"]
+
+  news:                           # docker compose run --rm news
+    <<: *bot
+    entrypoint: ["python", "-m", "smcbot", "news"]
+    command: []
+    profiles: ["tools"]
+
+  sessions:                       # docker compose run --rm sessions
+    <<: *bot
+    entrypoint: ["python", "-m", "smcbot", "sessions"]
+    command: []
+    profiles: ["tools"]
+
+  tests:                          # docker compose run --rm tests
+    <<: *bot
+    entrypoint: ["python", "-m", "pytest", "-q", "tests"]
+    command: []
+    profiles: ["tools"]

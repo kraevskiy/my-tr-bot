@@ -1,0 +1,72 @@
+{
+ "_about": "Round 10: Strategy v5 = v4 (+cont 12h, stop mode c) + AF Asia fake-out. Compare w_totalR / w_maxDD_R.",
+ "preset": "v5",
+ "base": {},
+ "modes": "c",
+ "variants": [
+  {
+   "name": "V4",
+   "group": "control",
+   "why": "v4 as before",
+   "params": {
+    "asia_fake": false,
+    "cont_window_bars": 72
+   }
+  },
+  {
+   "name": "V5_CORE",
+   "group": "control",
+   "why": "v4 + cont 12h, no AF",
+   "params": {
+    "asia_fake": false
+   }
+  },
+  {
+   "name": "V5",
+   "group": "cand",
+   "why": "v4 + cont 12h + AF x0.5",
+   "params": {},
+   "log": true
+  },
+  {
+   "name": "V5_AF1",
+   "group": "af",
+   "why": "AF at full risk",
+   "params": {
+    "af_risk_mult": 1.0
+   }
+  },
+  {
+   "name": "V5_AF_ADR35",
+   "group": "af",
+   "why": "AF day-range threshold 0.35",
+   "params": {
+    "af_adr_min": 0.35
+   }
+  },
+  {
+   "name": "V5_AF_ADR50",
+   "group": "af",
+   "why": "AF day-range threshold 0.50",
+   "params": {
+    "af_adr_min": 0.5
+   }
+  },
+  {
+   "name": "AF_ONLY",
+   "group": "af",
+   "why": "AF alone",
+   "params": {
+    "asia_fake_only": true
+   }
+  },
+  {
+   "name": "V5_SLIP1",
+   "group": "stress",
+   "why": "+1 pip slippage on stops/market/time exits",
+   "params": {
+    "slippage_pips": 1.0
+   }
+  }
+ ]
+}

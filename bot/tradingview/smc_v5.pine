@@ -1,0 +1,1004 @@
+//@version=6
+// SMC Bot — Strategy v5 = v4 + AF «фейк Азії» (EURUSD / GBPUSD). На M5 — сигнали, угоди і статистика; на H1 і вище — лише стрілки, де на M5 був сигнал.
+// Свіп пулу ліквідності → Shift на M5 → лімітка на краї FVG → стоп за свіпом, 50% на 2R, тейк 3R, закриття о 12:00 NY.
+// Клас сетапу A/B: PO3 (свіп ≤ 25 пп від NY 00:00), швидкість (свіп → сигнал ≤ 40 хв), M15 у бік угоди, свічкова модель D1 не проти.
+// Спрощення відносно бота (python): немає синхрону з M3; POI — лише останній дійсний FVG на H1 і H4; структура H4/M15 —
+// спрощений BOS за свінгами; спред — фіксований з налаштувань. Тому сигнали можуть інколи відрізнятися від бота.
+indicator("SMC Bot v4 — sweep → Shift → FVG", shorttitle = "SMC v4", overlay = true,
+     max_lines_count = 500, max_labels_count = 500, max_bars_back = 3000)
+
+// ───────────────────────────── inputs
+grpS = "Сесії (час Нью-Йорка, графік може бути в київському)"
+tz        = input.string("America/New_York", "Часовий пояс сесій", group = grpS)
+sessLon   = input.session("0200-0700", "Лондон (09:00–14:00 Київ)", group = grpS)
+sessNY    = input.session("0700-1200", "Нью-Йорк (14:00–19:00 Київ)", group = grpS)
+sessAsia  = input.session("1900-0200", "Азія — для пулів (02:00–09:00 Київ)", group = grpS)
+closeHour = input.int(12, "Закрити все о, год NY (19:00 Київ)", minval = 0, maxval = 23, group = grpS)
+holidays  = input.text_area("2024-01-01,2024-01-15,2024-02-19,2024-05-27,2024-06-19,2024-07-04,2024-09-02,2024-10-14,2024-11-11,2024-11-28,2024-12-25,2025-01-01,2025-01-20,2025-02-17,2025-05-26,2025-06-19,2025-07-04,2025-09-01,2025-10-13,2025-11-11,2025-11-27,2025-12-25,2026-01-01,2026-01-19,2026-02-16,2026-05-25,2026-06-19,2026-07-03,2026-09-07,2026-10-12,2026-11-11,2026-11-26,2026-12-25",
+     "Свята США — без NY-сесії (YYYY-MM-DD через кому)", group = grpS)
+
+grpR = "Стоп / ціль"
+spreadPips = input.float(1.0, "Спред, пп (EURUSD ~1.0, GBPUSD ~1.4)", step = 0.1, group = grpR)
+slBuf      = input.float(0.5, "Буфер стопу за свіпом, пп", step = 0.1, group = grpR)
+minSL      = input.float(5.0, "Мінімальний стоп, пп", step = 0.5, group = grpR)
+maxSprF    = input.float(0.12, "Спред ≤ частка стопу", step = 0.01, group = grpR)
+partR      = input.float(2.0, "Часткова 50%, R", step = 0.25, group = grpR)
+tpR        = input.float(3.0, "Тейк, R", step = 0.25, group = grpR)
+minRR      = input.float(2.0, "Мін. простір до найближчої цілі, R", step = 0.25, group = grpR)
+
+grpF = "Фільтри"
+useTrend = input.bool(true, "Тренд: H4 (S1) або BOS на M15 (S2)", group = grpF)
+usePD    = input.bool(true, "Лонг лише в discount, шорт — у premium (H1)", group = grpF)
+usePOI   = input.bool(true, "POI: FVG на H1/H4 або MAJOR-пул", group = grpF)
+useObst  = input.bool(true, "Простір до цілі ≥ мін. R", group = grpF)
+useCont  = input.bool(true, "S11: продовження на вищому лоу", group = grpF)
+contBars = input.int(144, "S11: вікно пошуку знятої ноги, барів M5 (144 = 12 год)", minval = 12, maxval = 288, group = grpF)
+useBEc   = input.bool(true, "Після часткової 2R: стоп у беззбиток на новому свінгу M5 (режим c)", group = grpR)
+nM5      = input.int(2, "Фрактал свінгів M5", minval = 1, group = grpF)
+lookback = input.int(36, "Пошук свіпу, барів M5 (36 = 3 год)", minval = 6, group = grpF)
+retBars  = input.int(3, "Повернення за рівень після свіпу, барів", minval = 1, group = grpF)
+minFvg   = input.float(0.5, "Мін. розмір FVG, пп", step = 0.1, group = grpF)
+
+grpAF = "AF — фейк Азії на відкритті Лондона"
+useAF    = input.bool(true, "Показувати сетап AF", group = grpAF)
+afAsia   = input.session("1900-2359", "Діапазон Азії (час NY)", group = grpAF)
+afWin    = input.session("0200-0500", "Вікно пробою (час NY; працює лише від 02:00)", group = grpAF)
+afBodyK  = input.float(0.5, "Тіло свічки пробою ≥ × ATR14(M5)", step = 0.05, group = grpAF)
+afFade   = input.int(6, "Повернення в діапазон протягом, барів M5", minval = 1, group = grpAF)
+afRecK   = input.float(0.5, "Тіло свічки повернення ≥ × ATR14(M5)", step = 0.05, group = grpAF)
+afAdr    = input.float(0.40, "Діапазон дня до пробою ≥ × ATR14(D)", step = 0.05, group = grpAF)
+afBuf    = input.float(1.0, "Буфер стопу за екстремумом, пп", step = 0.1, group = grpAF)
+afTpR    = input.float(3.0, "Тейк AF, R", step = 0.25, group = grpAF)
+afMult   = input.float(0.5, "Ризик AF, × від базового", step = 0.25, group = grpAF)
+
+grpG = "Клас сетапу (A = 3–4 бали)"
+gPO3   = input.float(25, "PO3: свіп ≤ X пп від відкриття NY 00:00", group = grpG)
+gDelay = input.int(40, "Від свіпу до сигналу ≤ X хв", group = grpG)
+multA  = input.float(1.5, "Ризик класу A, ×", step = 0.25, group = grpG)
+multB  = input.float(0.5, "Ризик класу B, ×", step = 0.25, group = grpG)
+
+grpV = "Вигляд"
+tblPosS    = input.string("Вгорі праворуч", "Таблиця", options = ["Вгорі праворуч", "Вгорі по центру", "Внизу праворуч", "Внизу по центру", "Внизу ліворуч"], group = grpV)
+grpH = "Глибина історії (днів від останньої свічки)"
+histM5     = input.int(3,   "M5 і нижче",   minval = 1, maxval = 120,  group = grpH)
+histH1     = input.int(30,  "M15 – H1",     minval = 1, maxval = 365,  group = grpH)
+histH4     = input.int(90,  "H2 – H4",      minval = 1, maxval = 730,  group = grpH)
+histD      = input.int(365, "D і вище",     minval = 1, maxval = 3650, group = grpH)
+showHTF    = input.bool(true, "H1 і вище: стрілки угод M5", group = grpV)
+labelTz    = input.string("Europe/Kiev", "Часовий пояс підписів часу", group = grpV)
+showLevels = input.bool(true, "Лінії входу / стопу / тейку", group = grpV)
+showStats  = input.bool(true, "Таблиця результатів", group = grpV)
+showRej    = input.bool(true, "Показувати відхилені сетапи (з причиною)", group = grpV)
+showShift  = input.bool(false, "Діагностика: усі зломи M5 без свіпу", group = grpV)
+
+// ───────────────────────────── basics
+pip  = syminfo.mintick * 10                     // 5-знакові пари: 0.00001 × 10 = 1 пп
+sprd = spreadPips * pip
+onM5 = timeframe.period == "5"
+tfSec = timeframe.in_seconds()
+histDays = tfSec <= 300 ? histM5 : tfSec <= 3600 ? histH1 : tfSec <= 14400 ? histH4 : histD
+inHist = time >= last_bar_time - histDays * 86400000   // від останньої свічки графіка (працює й у Симуляторі ринку)
+
+inSess(s) => not na(time(timeframe.period, s, tz))
+pad2(x) => x < 10 ? "0" + str.tostring(x) : str.tostring(x)
+endHour(s) => int(str.tonumber(str.substring(s, 5, 7)))
+
+// ───────────────────────────── higher-timeframe helpers (без заглядання в майбутнє: [1] + lookahead_on)
+f_trend(n) =>
+    var float sh = na
+    var float sl = na
+    var int tr = 0
+    ph = ta.pivothigh(high, n, n)
+    pl = ta.pivotlow(low, n, n)
+    if not na(ph)
+        sh := ph
+    if not na(pl)
+        sl := pl
+    if not na(sh) and close > sh
+        tr := 1
+        sh := na
+    if not na(sl) and close < sl
+        tr := -1
+        sl := na
+    tr
+
+f_swings(n) =>
+    var float lh = na
+    var float ll = na
+    ph = ta.pivothigh(high, n, n)
+    pl = ta.pivotlow(low, n, n)
+    if not na(ph)
+        lh := ph
+    if not na(pl)
+        ll := pl
+    [lh[1], ll[1]]
+
+f_fvg() =>
+    var float bLo = na
+    var float bHi = na
+    var float sLo = na
+    var float sHi = na
+    if low > high[2]
+        bLo := high[2]
+        bHi := low
+    if not na(bLo) and close < bLo
+        bLo := na
+        bHi := na
+    if high < low[2]
+        sLo := high
+        sHi := low[2]
+    if not na(sHi) and close > sHi
+        sLo := na
+        sHi := na
+    [bLo[1], bHi[1], sLo[1], sHi[1]]
+
+f_cbias() =>   // свічкова модель (урок 39): напрям на наступний день
+    upRev = low < low[1] and close >= low[1]
+    upCon = high > high[1] and close > high[1]
+    dnRev = high > high[1] and close <= high[1]
+    dnCon = low < low[1] and close < low[1]
+    bull = upRev or upCon
+    bear = dnRev or dnCon
+    bull and not bear ? 1 : bear and not bull ? -1 : 0
+
+// ───────────────────────────── types
+type Pool
+    float  lvl
+    int    dir           // +1 = buy-side (над хаями), -1 = sell-side (під лоу)
+    int    rank          // 3 MAJOR, 2 MEDIUM, 1 MINOR
+    string name
+    int    born
+    int    taken = na
+
+type Leg
+    int    s
+    float  lowF
+    int    rank
+    string name
+
+type Ctx
+    bool  isLon
+    bool  isNY
+    bool  isHoliday
+    int   h4T
+    int   m15T
+    int   cB
+    float h1H
+    float h1L
+    float h1bLo
+    float h1bHi
+    float h1sLo
+    float h1sHi
+    float h4bLo
+    float h4bHi
+    float h4sLo
+    float h4sHi
+    float nym
+
+type Sig
+    int    dir
+    int    s
+    float  extreme
+    float  entry
+    float  sl
+    float  tp
+    float  part
+    float  risk
+    string setup
+    string pool
+    int    score
+    string grade
+    float  mult
+    string why
+    bool   mkt = false
+
+addPool(array<Pool> pools, float lvl, int dir, int rank, string name) =>
+    if not na(lvl)
+        pools.push(Pool.new(lvl, dir, rank, name, bar_index))
+
+trim2(array<int> a, array<float> b, int keep) =>
+    while a.size() > keep
+        a.shift()
+        b.shift()
+
+trim3(array<int> a, array<float> b, array<float> c, int keep) =>
+    while a.size() > keep
+        a.shift()
+        b.shift()
+        c.shift()
+
+// ───────────────────────────── signal detection (одна сторона; шорти — дзеркально, "frame")
+detect(int dir, array<Pool> pools, Ctx c, array<int> shBar, array<float> shLvl, array<int> fMid, array<float> fHi, array<Leg> legs, int usedS) =>
+    float lo = dir == 1 ? low : -high
+    float cl = dir == 1 ? close : -close
+    float op = dir == 1 ? open : -open
+    Sig out = na
+    int sIdx = na
+    string rej = ""
+    // 1) the leg extreme: lowest low of the previous `lookback` bars, still holding
+    float lowS = na
+    int kS = na
+    for k = 1 to lookback
+        if na(lowS) or lo[k] < lowS
+            lowS := lo[k]
+            kS := k
+    if not na(lowS) and lo >= lowS
+        s = bar_index - kS
+        if na(usedS) or s != usedS
+            // 2) last confirmed swing high before the extreme
+            float lvl = na
+            if shBar.size() > 0
+                for j = shBar.size() - 1 to 0
+                    if shBar.get(j) < s
+                        lvl := shLvl.get(j)
+                        break
+            if not na(lvl) and cl > lvl and lvl > lowS
+                bool first = true
+                for k = 1 to kS
+                    if cl[k] > lvl
+                        first := false
+                        break
+                if first
+                    sIdx := s
+                    // 3) swept pool: taken in [s - lookback, s], reclaimed within retBars
+                    int bestRank = 0
+                    float bestLvl = na
+                    string bestName = ""
+                    for p in pools
+                        if p.dir == -dir and not na(p.taken) and p.born <= s and p.taken >= s - lookback and p.taken <= s
+                            lv = dir == 1 ? p.lvl : -p.lvl
+                            if lv > lowS and lv < cl
+                                bool rec = false
+                                for b = p.taken to math.min(p.taken + retBars, bar_index)
+                                    if cl[bar_index - b] > lv
+                                        rec := true
+                                        break
+                                if rec and (p.rank > bestRank or (p.rank == bestRank and lv < bestLvl))
+                                    bestRank := p.rank
+                                    bestLvl := lv
+                                    bestName := p.name
+                    bool cont = false
+                    if bestRank == 0 and showShift
+                        rej := (dir == 1 ? "▲ " : "▼ ") + "злам без свіпу пулу"
+                    if bestRank > 0
+                        legs.push(Leg.new(s, lowS, bestRank, bestName))
+                        if legs.size() > 50
+                            legs.shift()
+                    else if useCont and legs.size() > 0
+                        for j = legs.size() - 1 to 0
+                            lg = legs.get(j)
+                            if s - lg.s > contBars
+                                break
+                            if lg.s < s and lowS > lg.lowF
+                                float mn = na
+                                for k = kS to bar_index - lg.s
+                                    mn := na(mn) ? lo[k] : math.min(mn, lo[k])
+                                if not na(mn) and mn >= lg.lowF
+                                    bestRank := lg.rank
+                                    bestName := "S11 ← " + lg.name
+                                    cont := true
+                                    rej := ""
+                                    break
+                    if bestRank > 0
+                        // 4) entry: first FVG of the impulse (known by now), else the OB open
+                        float entry = na
+                        string zone = ""
+                        if fMid.size() > 0
+                            for j = 0 to fMid.size() - 1
+                                m = fMid.get(j)
+                                if m > s and m <= bar_index - 1
+                                    entry := fHi.get(j)
+                                    zone := "FVG"
+                                    break
+                        if na(entry)
+                            for b = math.min(s + 1, bar_index) to s - 3
+                                k = bar_index - b
+                                if cl[k] < op[k]
+                                    entry := op[k]
+                                    zone := "OB"
+                                    break
+                        string why = ""
+                        bool inWin = c.isLon or (c.isNY and not c.isHoliday)
+                        if not inWin
+                            why += "поза вікном; "
+                        float slF = lowS - slBuf * pip - sprd
+                        float risk = na(entry) ? na : entry - slF
+                        if na(entry)
+                            why += "немає зони входу; "
+                        else
+                            if entry >= cl
+                                why += "вхід вище ціни; "
+                            if risk <= 0
+                                why += "вхід нижче стопу; "
+                            else
+                                if risk / pip < minSL
+                                    why += "стоп < " + str.tostring(minSL) + " пп; "
+                                if sprd / risk > maxSprF
+                                    why += "спред завеликий; "
+                        string setup = c.h4T == dir ? "S1" : c.m15T == dir ? "S2" : ""
+                        if useTrend and setup == ""
+                            why += "проти тренду; "
+                        if usePD
+                            mid = (c.h1H + c.h1L) / 2
+                            if na(mid) or na(entry) or entry >= dir * mid
+                                why += dir == 1 ? "не discount; " : "не premium; "
+                        if usePOI and bestRank < 3
+                            float minCl = na
+                            for k = 0 to kS
+                                minCl := na(minCl) ? cl[k] : math.min(minCl, cl[k])
+                            zl1 = dir == 1 ? c.h1bLo : -c.h1sHi
+                            zh1 = dir == 1 ? c.h1bHi : -c.h1sLo
+                            zl4 = dir == 1 ? c.h4bLo : -c.h4sHi
+                            zh4 = dir == 1 ? c.h4bHi : -c.h4sLo
+                            t1 = not na(zl1) and lowS <= zh1 and minCl >= zl1
+                            t4 = not na(zl4) and lowS <= zh4 and minCl >= zl4
+                            if not t1 and not t4
+                                why += "немає POI; "
+                        if useObst and not na(entry) and risk > 0
+                            float obst = na
+                            for p in pools
+                                if p.dir == dir and na(p.taken) and p.rank >= 2 and p.born <= bar_index
+                                    lv = dir == 1 ? p.lvl : -p.lvl
+                                    if lv > entry
+                                        obst := na(obst) ? lv : math.min(obst, lv)
+                            fz = dir == 1 ? c.h1sLo : -c.h1bHi
+                            fz4 = dir == 1 ? c.h4sLo : -c.h4bHi
+                            if not na(fz) and fz > entry
+                                obst := na(obst) ? fz : math.min(obst, fz)
+                            if not na(fz4) and fz4 > entry
+                                obst := na(obst) ? fz4 : math.min(obst, fz4)
+                            if not na(obst) and (obst - entry) / risk < minRR
+                                why += "ціль < " + str.tostring(minRR) + "R; "
+                        if why != ""
+                            rej := (dir == 1 ? "▲ " : "▼ ") + bestName + ": " + why
+                        if why == ""
+                            // 5) setup grade
+                            nymF = dir * c.nym
+                            q1 = not na(c.nym) and (nymF - lowS) / pip <= gPO3
+                            q2 = (time_close - time[kS]) / 60000 <= gDelay
+                            q3 = c.m15T == dir
+                            q4 = c.cB != -dir
+                            score = (q1 ? 1 : 0) + (q2 ? 1 : 0) + (q3 ? 1 : 0) + (q4 ? 1 : 0)
+                            grade = score >= 3 ? "A" : "B"
+                            tag = setup + (cont ? "+S11" : "")
+                            out := Sig.new(dir, s, dir * lowS, dir * entry, dir * slF, dir * (entry + tpR * risk),
+                                 dir * (entry + partR * risk), risk, tag, bestName, score, grade,
+                                 grade == "A" ? multA : multB,
+                                 (q1 ? "✓" : "✗") + " PO3  " + (q2 ? "✓" : "✗") + " швидко  " + (q3 ? "✓" : "✗") + " M15  " + (q4 ? "✓" : "✗") + " D1")
+    [out, sIdx, rej]
+
+
+// ───────────────────────────── engine: усе, що потрібно для сигналу, рахується на M5
+// (на графіку M5 викликається напряму, на H1 і вище — через request.security_lower_tf)
+engine() =>
+    h4Trend  = request.security(syminfo.tickerid, "240", f_trend(3)[1], lookahead = barmerge.lookahead_on)
+    m15Trend = request.security(syminfo.tickerid, "15", f_trend(2)[1], lookahead = barmerge.lookahead_on)
+    cBias    = request.security(syminfo.tickerid, "D", f_cbias()[1], lookahead = barmerge.lookahead_on)
+    [h1H, h1L]   = request.security(syminfo.tickerid, "60", f_swings(3), lookahead = barmerge.lookahead_on)
+    [m15H, m15L] = request.security(syminfo.tickerid, "15", f_swings(2), lookahead = barmerge.lookahead_on)
+    [h1bLo, h1bHi, h1sLo, h1sHi] = request.security(syminfo.tickerid, "60", f_fvg(), lookahead = barmerge.lookahead_on)
+    [h4bLo, h4bHi, h4sLo, h4sHi] = request.security(syminfo.tickerid, "240", f_fvg(), lookahead = barmerge.lookahead_on)
+    pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+    pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+    pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+    pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+    pmh = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_on)
+    pml = request.security(syminfo.tickerid, "M", low[1], lookahead = barmerge.lookahead_on)
+
+    isLon  = inSess(sessLon)
+    isNY   = inSess(sessNY)
+    isAsia = inSess(sessAsia)
+    dateStr = str.tostring(year(time, tz)) + "-" + pad2(month(time, tz)) + "-" + pad2(dayofmonth(time, tz))
+    isHoliday = str.contains(holidays, dateStr)
+
+    var float nym = na
+    if hour(time, tz) == 0 and minute(time, tz) == 0
+        nym := open
+
+    // liquidity pools
+    var pools = array.new<Pool>()
+    if pdh != pdh[1]
+        addPool(pools, pdh, 1, 3, "PDH")
+        addPool(pools, pdl, -1, 3, "PDL")
+    if pwh != pwh[1]
+        addPool(pools, pwh, 1, 3, "PWH")
+        addPool(pools, pwl, -1, 3, "PWL")
+    if pmh != pmh[1]
+        addPool(pools, pmh, 1, 3, "PMH")
+        addPool(pools, pml, -1, 3, "PML")
+    if h1H != h1H[1]
+        addPool(pools, h1H, 1, 2, "H1 high")
+    if h1L != h1L[1]
+        addPool(pools, h1L, -1, 2, "H1 low")
+    if m15H != m15H[1]
+        addPool(pools, m15H, 1, 1, "M15 high")
+    if m15L != m15L[1]
+        addPool(pools, m15L, -1, 1, "M15 low")
+    var float curAH = na
+    var float curAL = na
+    if isAsia
+        if not isAsia[1]
+            curAH := high
+            curAL := low
+        else
+            curAH := math.max(curAH, high)
+            curAL := math.min(curAL, low)
+    if isAsia[1] and not isAsia
+        addPool(pools, curAH, 1, 2, "ASIA high")
+        addPool(pools, curAL, -1, 2, "ASIA low")
+    for p in pools
+        if na(p.taken) and bar_index > p.born
+            if (p.dir == -1 and low < p.lvl) or (p.dir == 1 and high > p.lvl)
+                p.taken := bar_index
+    if pools.size() > 0
+        for i = pools.size() - 1 to 0
+            p = pools.get(i)
+            if (not na(p.taken) and bar_index - p.taken > 400) or bar_index - p.born > 6000
+                pools.remove(i)
+
+    // M5 swings and FVG per side
+    var shBarL = array.new<int>()
+    var shLvlL = array.new<float>()
+    var shBarS = array.new<int>()
+    var shLvlS = array.new<float>()
+    ph5 = ta.pivothigh(high, nM5, nM5)
+    pl5 = ta.pivotlow(low, nM5, nM5)
+    if not na(ph5)
+        shBarL.push(bar_index - nM5)
+        shLvlL.push(ph5)
+    if not na(pl5)
+        shBarS.push(bar_index - nM5)
+        shLvlS.push(-pl5)
+    var fMidL = array.new<int>()
+    var fLoL  = array.new<float>()
+    var fHiL  = array.new<float>()
+    var fMidS = array.new<int>()
+    var fLoS  = array.new<float>()
+    var fHiS  = array.new<float>()
+    if low - high[2] >= minFvg * pip
+        fMidL.push(bar_index - 1)
+        fLoL.push(high[2])
+        fHiL.push(low)
+    if low[2] - high >= minFvg * pip
+        fMidS.push(bar_index - 1)
+        fLoS.push(-low[2])
+        fHiS.push(-high)
+    trim2(shBarL, shLvlL, 300)
+    trim2(shBarS, shLvlS, 300)
+    trim3(fMidL, fLoL, fHiL, 300)
+    trim3(fMidS, fLoS, fHiS, 300)
+
+    c = Ctx.new(isLon, isNY, isHoliday, h4Trend, m15Trend, cBias, h1H, h1L, h1bLo, h1bHi, h1sLo, h1sHi, h4bLo, h4bHi, h4sLo, h4sHi, nym)
+    var legsL = array.new<Leg>()
+    var legsS = array.new<Leg>()
+    var int usedSL = na
+    var int usedSS = na
+    [sigL, sL, rejL] = detect(1, pools, c, shBarL, shLvlL, fMidL, fHiL, legsL, usedSL)
+    [sigS, sS, rejS] = detect(-1, pools, c, shBarS, shLvlS, fMidS, fHiS, legsS, usedSS)
+    if not na(sL)
+        usedSL := sL
+    if not na(sS)
+        usedSS := sS
+
+    // ── AF: фейк Азії на відкритті Лондона (M5, лише закриті бари)
+    atr5 = ta.sma(ta.tr(true), 14)
+    atrD = request.security(syminfo.tickerid, "D", ta.sma(ta.tr(true), 14)[1], lookahead = barmerge.lookahead_on)
+    newDay = ta.change(time("D")) != 0
+    var float dHi = na
+    var float dLo = na
+    float dHiPrev = newDay ? na : dHi
+    float dLoPrev = newDay ? na : dLo
+    dHi := newDay ? high : math.max(dHi, high)
+    dLo := newDay ? low : math.min(dLo, low)
+    inAF = inSess(afAsia)
+    inAFW = inSess(afWin)
+    var float aH = na
+    var float aL = na
+    var int aN = 0
+    var float afH = na
+    var float afL = na
+    var bool afUsed = false
+    var int afBs = 0
+    var int afBi = na
+    var float afLvl = na
+    var float afExt = na
+    if newDay
+        afH := na
+        afL := na
+        afUsed := false
+        afBs := 0
+    if inAF
+        if not inAF[1]
+            aH := high
+            aL := low
+            aN := 1
+        else
+            aH := math.max(aH, high)
+            aL := math.min(aL, low)
+            aN += 1
+    if inAF[1] and not inAF
+        afH := aN >= 48 ? aH : na
+        afL := aN >= 48 ? aL : na
+    int afDir = 0
+    float afEn = na
+    float afSl = na
+    float afTp = na
+    float afAdrV = na
+    if afBs != 0
+        afExt := afBs == 1 ? math.max(afExt, high) : math.min(afExt, low)
+        if bar_index - afBi > afFade
+            afBs := 0
+        else if (afBs == 1 and close < afLvl) or (afBs == -1 and close > afLvl)
+            if math.abs(close - open) >= afRecK * atr5
+                afDir := -afBs
+                afEn := close + (afDir == 1 ? sprd : 0.0)
+                afSl := afDir == 1 ? afExt - afBuf * pip : afExt + afBuf * pip + sprd
+                if (afEn - afSl) * afDir < minSL * pip
+                    afSl := afEn - afDir * minSL * pip
+                afTp := afEn + afDir * afTpR * math.abs(afEn - afSl)
+            afBs := 0
+    if useAF and inAFW and not afUsed and not na(afH) and not na(atr5)
+        body = close - open
+        bool upB = close > afH and close[1] <= afH and body > 0 and body >= afBodyK * atr5
+        bool dnB = close < afL and close[1] >= afL and body < 0 and -body >= afBodyK * atr5
+        if upB or dnB
+            afUsed := true
+            float adrNow = (dHiPrev - dLoPrev) / atrD
+            if adrNow >= afAdr
+                afBs := upB ? 1 : -1
+                afBi := bar_index
+                afLvl := upB ? afH : afL
+                afExt := upB ? high : low
+    afAdrV := afDir != 0 ? (dHi - dLo) / atrD : na
+
+    Sig sg = not na(sigL) ? sigL : sigS
+    int    oDir = 0
+    float  oExt = na
+    float  oEn = na
+    float  oSl = na
+    float  oTp = na
+    float  oPa = na
+    float  oRk = na
+    string oSt = ""
+    string oPo = ""
+    int    oSc = 0
+    string oGr = ""
+    float  oMu = na
+    string oWh = ""
+    if not na(sg)
+        oDir := sg.dir
+        oExt := sg.extreme
+        oEn := sg.entry
+        oSl := sg.sl
+        oTp := sg.tp
+        oPa := sg.part
+        oRk := sg.risk
+        oSt := sg.setup
+        oPo := sg.pool
+        oSc := sg.score
+        oGr := sg.grade
+        oMu := sg.mult
+        oWh := sg.why
+    [oDir, oExt, oEn, oSl, oTp, oPa, oRk, oSt, oPo, oSc, oGr, oMu, oWh, rejL, rejS, isLon, afDir, afEn, afSl, afTp, afAdrV]
+
+// ───────────────────────────── lite-симуляція для H1 і вище (на M5-даних, два незалежні слоти: v4 і AF)
+type LSlot
+    int   pDir = 0
+    float pEn
+    float pSl
+    float pTp
+    float pPa
+    int   pSc = 0
+    int   pExp
+    int   pSig
+    bool  pMkt = false
+    int   oDir = 0
+    float oEn
+    float oSl
+    float oTp
+    float oPa
+    int   oCls
+    int   oKey
+    float oRem = 1.0
+    float oR = 0.0
+    bool  oPart = false
+    int   oPartBar
+
+liteStep(LSlot z, int d, float en, float sl, float tp, float pa, int sc, int expT, bool mkt, float pivL, float pivH) =>
+    int   fDir = 0
+    int   fSc = 0
+    int   fSig = na
+    float fEn = na
+    float fSl = na
+    float fTp = na
+    int   xDir = 0
+    int   xSig = na
+    string xWhy = ""
+    int   rKey = na
+    float rR = na
+    string rWhy = ""
+    if z.pDir != 0
+        bool fill = false
+        if z.pMkt
+            fill := true
+            float e0 = open + (z.pDir == 1 ? sprd : 0.0)
+            z.pTp := e0 + (z.pTp - z.pEn)
+            z.pEn := e0
+        else
+            bool hit = z.pDir == 1 ? low + sprd <= z.pEn : high >= z.pEn
+            bool tpFirst = z.pDir == 1 ? high >= z.pTp : low + sprd <= z.pTp
+            if time >= z.pExp
+                xDir := z.pDir
+                xSig := z.pSig
+                xWhy := "час вікна вийшов"
+                z.pDir := 0
+            else if tpFirst
+                xDir := z.pDir
+                xSig := z.pSig
+                xWhy := "ціна дійшла до тейку без входу"
+                z.pDir := 0
+            else if hit
+                fill := true
+        if fill
+            fDir := z.pDir
+            fSc := z.pSc
+            fSig := z.pSig
+            fEn := z.pEn
+            fSl := z.pSl
+            fTp := z.pTp
+            z.oDir := z.pDir
+            z.oEn := z.pEn
+            z.oSl := z.pSl
+            z.oTp := z.pTp
+            z.oPa := z.pPa
+            z.oKey := time
+            z.oRem := 1.0
+            z.oR := 0.0
+            z.oPart := false
+            z.oCls := timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), closeHour, 0)
+            z.pDir := 0
+    if z.oDir != 0
+        float R = math.abs(z.oEn - z.oSl)
+        float tpRR = math.abs(z.oTp - z.oEn) / R
+        if time >= z.oCls
+            px = z.oDir == 1 ? open : open + sprd
+            z.oR += z.oRem * (px - z.oEn) * z.oDir / R
+            rWhy := "закрито о 12:00 NY"
+            rKey := z.oKey
+        else
+            bool stopHit = z.oDir == 1 ? low <= z.oSl : high + sprd >= z.oSl
+            if stopHit
+                z.oR += z.oRem * (z.oSl - z.oEn) * z.oDir / R
+                rWhy := z.oPart ? (math.abs(z.oSl - z.oEn) < pip * 0.01 ? "беззбиток після часткової 2R" : "стоп після часткової 2R") : "стоп"
+                rKey := z.oKey
+            else
+                fav = z.oDir == 1 ? high : low + sprd
+                if not z.oPart and not na(z.oPa) and (fav - z.oPa) * z.oDir >= 0
+                    z.oR += 0.5 * partR
+                    z.oRem := 0.5
+                    z.oPart := true
+                    z.oPartBar := bar_index
+                if (fav - z.oTp) * z.oDir >= 0
+                    z.oR += z.oRem * tpRR
+                    rWhy := "тейк " + str.tostring(tpRR, "0.#") + "R"
+                    rKey := z.oKey
+                else if useBEc and z.oPart and (z.oSl - z.oEn) * z.oDir < 0
+                    float piv = z.oDir == 1 ? pivL : pivH
+                    if not na(piv) and bar_index - nM5 > z.oPartBar and (piv - z.oEn) * z.oDir > 0
+                        z.oSl := z.oEn
+        if not na(rKey)
+            rR := z.oR
+            z.oDir := 0
+    if d != 0 and z.oDir == 0
+        if z.pDir != 0
+            xDir := z.pDir
+            xSig := z.pSig
+            xWhy := "замінено новим сигналом"
+        z.pDir := d
+        z.pEn := en
+        z.pSl := sl
+        z.pTp := tp
+        z.pPa := pa
+        z.pSc := sc
+        z.pSig := time_close
+        z.pExp := expT
+        z.pMkt := mkt
+    [fDir, fSc, fSig, fEn, fSl, fTp, xDir, xSig, xWhy, rKey, rR, rWhy]
+
+engineLite() =>
+    [d, ex, en, sl, tp, pa, rk, st, po, sc, gr, mu, wh, rl, rs, il, afd, afe, afs, aft, afa] = engine()
+    pivL = ta.pivotlow(low, nM5, nM5)
+    pivH = ta.pivothigh(high, nM5, nM5)
+    var LSlot z1 = LSlot.new()
+    var LSlot z2 = LSlot.new()
+    int exp1 = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), il ? endHour(sessLon) : endHour(sessNY), 0)
+    [f1, s1, g1, e1, l1, t1, x1, xs1, xw1, k1, r1, w1] = liteStep(z1, d, en, sl, tp, pa, sc, exp1, false, pivL, pivH)
+    [f2, s2, g2, e2, l2, t2, x2, xs2, xw2, k2, r2, w2] = liteStep(z2, afd, afe, afs, aft, na, 0, time + 3600000, true, pivL, pivH)
+    [time, f1, s1, g1, e1, l1, t1, x1, xs1, xw1, k1, r1, w1, f2, e2, l2, t2, k2, r2, w2]
+
+hm(int t) => str.format_time(t, "HH:mm", labelTz)
+dhm(int t) => str.format_time(t, "dd.MM HH:mm", labelTz)
+fmtR(float r) => str.format("{0}{1,number,0.00}R", r >= 0 ? "+" : "", r)
+resWord(float r) => r > 0.05 ? "✓ УСПІШНА" : r < -0.05 ? "✗ НЕУСПІШНА" : "= БЕЗЗБИТОК"
+resCol(float r) => r > 0.05 ? color.new(color.green, 20) : r < -0.05 ? color.new(color.red, 20) : color.new(color.gray, 30)
+
+// ───────────────────────────── H1 і вище: мітки там, де на M5 відкрилась би позиція, + результат
+[aT, aD1, aS1, aG1, aE1, aL1, aTp1, aX1, aXs1, aXw1, aK1, aR1, aW1, aD2, aE2, aL2, aTp2, aK2, aR2, aW2] = request.security_lower_tf(syminfo.tickerid, "5", engineLite())
+var openKeys = array.new<int>()
+var openLbls = array.new<label>()
+var openTips = array.new<string>()
+var openSet  = array.new<int>()
+var int hN = 0
+var int hW = 0
+var float hR = 0.0
+var float hRw = 0.0
+var int hNa = 0
+var float hRa = 0.0
+
+htfOpen(int dir, int key, float en, float sl, float tp, string head, string sigLine, color col) =>
+    tip = head + "\nВхід: " + dhm(key) + " @ " + str.tostring(en, format.mintick) + sigLine +
+         "\nСтоп: " + str.tostring(sl, format.mintick) + "\nТейк: " + str.tostring(tp, format.mintick)
+    lb = label.new(bar_index, dir == 1 ? low : high, (dir == 1 ? "▲ " : "▼ ") + head + " " + hm(key), style = dir == 1 ? label.style_label_up : label.style_label_down,
+         size = size.small, textcolor = color.white, color = col, tooltip = "Результат: позиція ще відкрита\n\n" + tip)
+    [lb, tip]
+
+if showHTF and not onM5 and tfSec > 300 and aT.size() > 0
+    for i = 0 to aT.size() - 1
+        d1 = aD1.get(i)
+        if d1 != 0 and inHist
+            isA = aS1.get(i) >= 3
+            [lb, tip] = htfOpen(d1, aT.get(i), aE1.get(i), aL1.get(i), aTp1.get(i), "v4 " + (isA ? "A" : "B") + " (" + str.tostring(aS1.get(i)) + "/4)", "\nСигнал (лімітка): " + hm(aG1.get(i)), isA ? color.new(color.teal, 0) : color.new(color.orange, 0))
+            openKeys.push(aT.get(i))
+            openLbls.push(lb)
+            openTips.push(tip)
+            openSet.push(isA ? 1 : 2)
+        d2 = aD2.get(i)
+        if d2 != 0 and inHist
+            [lb, tip] = htfOpen(d2, aT.get(i), aE2.get(i), aL2.get(i), aTp2.get(i), "AF", "\nФейк Азії, вхід по ринку", color.new(color.purple, 0))
+            openKeys.push(-aT.get(i))
+            openLbls.push(lb)
+            openTips.push(tip)
+            openSet.push(3)
+        for z = 0 to 1
+            rk = z == 0 ? aK1.get(i) : aK2.get(i)
+            if not na(rk)
+                idx = openKeys.indexof(z == 0 ? rk : -rk)
+                if idx >= 0
+                    rr = z == 0 ? aR1.get(i) : aR2.get(i)
+                    lb = openLbls.get(idx)
+                    lb.set_text(lb.get_text() + "\n" + resWord(rr) + " " + fmtR(rr))
+                    lb.set_color(resCol(rr))
+                    lb.set_tooltip("Результат: " + resWord(rr) + ", " + fmtR(rr) + " (" + (z == 0 ? aW1.get(i) : aW2.get(i)) + ")\n\n" + openTips.get(idx))
+                    st = openSet.get(idx)
+                    float mult = st == 1 ? multA : st == 2 ? multB : afMult
+                    hN += 1
+                    hR += rr
+                    hRw += rr * mult
+                    if rr > 0.05
+                        hW += 1
+                    if st == 3
+                        hNa += 1
+                        hRa += rr
+                    openKeys.remove(idx)
+                    openLbls.remove(idx)
+                    openTips.remove(idx)
+                    openSet.remove(idx)
+        x1 = aX1.get(i)
+        if x1 != 0 and inHist
+            label.new(bar_index, x1 == 1 ? low : high, "○", style = x1 == 1 ? label.style_label_up : label.style_label_down,
+                 size = size.tiny, textcolor = color.white, color = color.new(color.gray, 50),
+                 tooltip = (x1 == 1 ? "LONG" : "SHORT") + " v4: лімітка з " + hm(aXs1.get(i)) + " не виконалась — " + aXw1.get(i))
+
+var table th = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 30), border_width = 1)
+if showStats and showHTF and not onM5 and tfSec > 300 and barstate.islast
+    table.cell(th, 0, 0, "SMC v5 · " + str.tostring(histDays) + " дн. (з M5)", text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(th, 1, 0, "", text_size = size.small)
+    table.cell(th, 0, 1, "Угод закрито (v4 + AF)", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(th, 1, 1, str.tostring(hN) + " (" + str.tostring(hN - hNa) + " + " + str.tostring(hNa) + ")", text_color = color.white, text_size = size.small, text_halign = text.align_right)
+    table.cell(th, 0, 2, "Вінрейт", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(th, 1, 2, hN > 0 ? str.tostring(100.0 * hW / hN, "#") + "%" : "—", text_color = color.white, text_size = size.small, text_halign = text.align_right)
+    table.cell(th, 0, 3, "Разом R (v4 / AF)", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(th, 1, 3, str.tostring(hR - hRa, "0.0") + " / " + str.tostring(hRa, "0.0"), text_color = hR >= 0 ? color.lime : color.red, text_size = size.small, text_halign = text.align_right)
+    table.cell(th, 0, 4, "R з вагою ризику", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(th, 1, 4, str.tostring(hRw, "0.0"), text_color = hRw >= 0 ? color.lime : color.red, text_size = size.small, text_halign = text.align_right)
+
+// ───────────────────────────── M5: сигнали, угоди, статистика
+[eDir, eExt, eEntry, eSl, eTp, ePart, eRisk, eSetup, ePool, eScore, eGrade, eMult, eWhy, eRejL, eRejS, eIsLon, fDir, fEn, fSl, fTp, fAdr] = engine()
+pivL5 = ta.pivotlow(low, nM5, nM5)
+pivH5 = ta.pivothigh(high, nM5, nM5)
+Sig sigNow = na
+if onM5 and eDir != 0
+    sigNow := Sig.new(eDir, na, eExt, eEntry, eSl, eTp, ePart, eRisk, eSetup, ePool, eScore, eGrade, eMult, eWhy)
+Sig sigAF = na
+if onM5 and fDir != 0
+    sigAF := Sig.new(fDir, na, na, fEn, fSl, fTp, na, math.abs(fEn - fSl), "AF", fDir == 1 ? "ASIA low" : "ASIA high", 0, "AF", afMult,
+         "Фейк Азії: пробій " + (fDir == 1 ? "лоу" : "хаю") + " Азії у вікні Лондона, повернення в діапазон; діапазон дня " + str.tostring(fAdr, "0.00") + "×ATR(D)", true)
+if onM5 and inHist and showRej and eRejL != ""
+    label.new(bar_index, low, "✗", style = label.style_label_up, color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny, tooltip = eRejL)
+if onM5 and inHist and showRej and eRejS != ""
+    label.new(bar_index, high, "✗", style = label.style_label_down, color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny, tooltip = eRejS)
+
+// ───────────────────────────── trade simulation (як у бектесті: лімітка/ринок, скасування, часткова, стоп, режим c, тейк, час)
+type Trade
+    Sig    sg
+    int    sigBar
+    int    expTime
+    int    closeTime
+    bool   filled = false
+    bool   partial = false
+    int    partBar
+    bool   done = false
+    float  rem = 1.0
+    float  r = 0.0
+    string status = "pending"
+    line   lE
+    line   lS
+    line   lT
+    label  lb
+    string tip = ""
+
+type Stats
+    int   nTr = 0
+    int   nWin = 0
+    int   nA = 0
+    int   nMiss = 0
+    float sumR = 0.0
+    float sumW = 0.0
+    float sumA = 0.0
+    float sumB = 0.0
+
+var Trade cur = na
+var Trade curAF = na
+var Stats S = Stats.new()
+var Stats SA = Stats.new()
+
+finish(Trade t, string st, Stats ss) =>
+    t.done := true
+    t.status := st
+    if t.filled
+        ss.nTr += 1
+        ss.sumR += t.r
+        ss.sumW += t.r * t.sg.mult
+        if t.r > 0.05
+            ss.nWin += 1
+        if t.sg.grade == "A"
+            ss.nA += 1
+            ss.sumA += t.r
+        else
+            ss.sumB += t.r
+    else if st == "пропущено"
+        ss.nMiss += 1
+    if not na(t.lb)
+        string res = resWord(t.r)
+        float tpRR = math.abs(t.sg.tp - t.sg.entry) / t.sg.risk
+        string why = st == "тейк" ? "тейк " + str.tostring(tpRR, "0.#") + "R" : st == "стоп" ? (t.partial ? (math.abs(t.sg.sl - t.sg.entry) < pip * 0.01 ? "беззбиток після часткової 2R" : "стоп після часткової 2R") : "стоп") : st == "час" ? "закрито о 12:00 NY" : st
+        txt = t.filled ? res + " " + fmtR(t.r) : "не відкрита: " + st
+        t.lb.set_text(t.lb.get_text() + "\n" + txt)
+        t.lb.set_tooltip((t.filled ? "Результат: " + res + ", " + fmtR(t.r) + " (" + why + ")" : "Угода не відкрита: " + st) + "\n\n" + t.tip)
+        t.lb.set_color(t.filled ? resCol(t.r) : color.new(color.gray, 40))
+    if not na(t.lE)
+        t.lE.set_x2(time)
+        t.lS.set_x2(time)
+        t.lT.set_x2(time)
+
+manage(Trade tr, Stats ss, float pivL, float pivH) =>
+    if not na(tr) and not tr.done and bar_index > tr.sigBar
+        d = tr.sg.dir
+        if not tr.filled
+            if tr.sg.mkt
+                float e0 = open + (d == 1 ? sprd : 0.0)
+                tr.sg.tp := e0 + (tr.sg.tp - tr.sg.entry)
+                tr.sg.entry := e0
+                tr.sg.risk := math.abs(e0 - tr.sg.sl)
+                tr.filled := true
+                tr.lb.set_text(tr.lb.get_text() + "\nвхід " + hm(time))
+                tr.tip := "Вхід: " + hm(time) + " @ " + str.tostring(e0, format.mintick) + "\n" + tr.tip
+            else if time >= tr.expTime
+                finish(tr, "не виконано", ss)
+            else
+                tpFirst = d == 1 ? high >= tr.sg.tp : low + sprd <= tr.sg.tp
+                touch   = d == 1 ? low + sprd <= tr.sg.entry : high >= tr.sg.entry
+                if tpFirst
+                    finish(tr, "пропущено", ss)
+                else if touch
+                    tr.filled := true
+                    tr.lb.set_text(tr.lb.get_text() + "\nвхід " + hm(time))
+                    tr.tip := "Вхід: " + hm(time) + "\n" + tr.tip
+        if tr.filled and not tr.done
+            R = tr.sg.risk
+            if time >= tr.closeTime
+                px = d == 1 ? open : open + sprd
+                tr.r += tr.rem * (px - tr.sg.entry) * d / R
+                finish(tr, "час", ss)
+            else
+                stopHit = d == 1 ? low <= tr.sg.sl : high + sprd >= tr.sg.sl
+                if stopHit
+                    tr.r += tr.rem * (tr.sg.sl - tr.sg.entry) * d / R
+                    finish(tr, "стоп", ss)
+                else
+                    fav = d == 1 ? high : low + sprd
+                    if not tr.partial and not na(tr.sg.part) and (fav - tr.sg.part) * d >= 0
+                        tr.r += 0.5 * partR
+                        tr.rem := 0.5
+                        tr.partial := true
+                        tr.partBar := bar_index
+                    if (fav - tr.sg.tp) * d >= 0
+                        tr.r += tr.rem * math.abs(tr.sg.tp - tr.sg.entry) / R
+                        finish(tr, "тейк", ss)
+                    else if useBEc and tr.partial and (tr.sg.sl - tr.sg.entry) * d < 0
+                        float piv = d == 1 ? pivL : pivH
+                        if not na(piv) and bar_index - nM5 > tr.partBar and (piv - tr.sg.entry) * d > 0
+                            tr.sg.sl := tr.sg.entry
+                            if not na(tr.lS)
+                                tr.lS.set_y1(tr.sg.entry)
+                                tr.lS.set_y2(tr.sg.entry)
+
+openTrade(Sig sg, int expT, color col, string txt) =>
+    y = year(time, tz)
+    mo = month(time, tz)
+    dd = dayofmonth(time, tz)
+    t = Trade.new(sg, bar_index, expT, timestamp(tz, y, mo, dd, closeHour, 0))
+    isLong = sg.dir == 1
+    tip = "Сигнал: " + hm(time_close) + "\nПул: " + sg.pool + "\nЦіна входу: " + str.tostring(sg.entry, format.mintick) + (sg.mkt ? " (по ринку)" : " (лімітка)") +
+         "\nСтоп: " + str.tostring(sg.sl, format.mintick) + (na(sg.part) ? "" : "\nЧасткова: " + str.tostring(sg.part, format.mintick)) + "\nТейк: " + str.tostring(sg.tp, format.mintick) +
+         "\nСтоп, пп: " + str.tostring(sg.risk / pip, "0.0") + "\nРизик ×" + str.tostring(sg.mult) + "\n" + sg.why
+    t.lb := label.new(bar_index, isLong ? low : high, txt, color = col, textcolor = color.white, size = size.small,
+         style = isLong ? label.style_label_up : label.style_label_down, tooltip = tip)
+    t.tip := tip
+    if showLevels
+        t.lE := line.new(time, sg.entry, sg.mkt ? time + 600000 : t.expTime, sg.entry, xloc = xloc.bar_time, color = color.new(color.white, 20), width = 2)
+        t.lS := line.new(time, sg.sl, t.closeTime, sg.sl, xloc = xloc.bar_time, color = color.new(color.red, 10), width = 1)
+        t.lT := line.new(time, sg.tp, t.closeTime, sg.tp, xloc = xloc.bar_time, color = color.new(color.green, 10), width = 1)
+    alert(syminfo.ticker + ": " + txt + " | вхід " + str.tostring(sg.entry, format.mintick) + ", стоп " + str.tostring(sg.sl, format.mintick) +
+         ", тейк " + str.tostring(sg.tp, format.mintick) + ", ризик ×" + str.tostring(sg.mult), alert.freq_once_per_bar_close)
+    t
+
+manage(cur, S, pivL5, pivH5)
+manage(curAF, SA, pivL5, pivH5)
+
+// v4: one trade at a time; a newer signal replaces a still-pending order
+if onM5 and inHist and not na(sigNow) and barstate.isconfirmed
+    if na(cur) or cur.done or not cur.filled
+        if not na(cur) and not cur.done
+            finish(cur, "замінено", S)
+        winEnd = eIsLon ? endHour(sessLon) : endHour(sessNY)
+        expT = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), winEnd, 0)
+        txt = (sigNow.dir == 1 ? "▲ LONG " : "▼ SHORT ") + sigNow.grade + " " + sigNow.setup + "  " + str.tostring(sigNow.score) + "/4"
+        cur := openTrade(sigNow, expT, sigNow.grade == "A" ? color.new(color.teal, 0) : color.new(color.orange, 0), txt)
+
+// AF: own slot (independent of v4), market order at the next bar
+if onM5 and inHist and not na(sigAF) and barstate.isconfirmed
+    if na(curAF) or curAF.done
+        txt = (sigAF.dir == 1 ? "▲ LONG AF" : "▼ SHORT AF") + " фейк Азії"
+        curAF := openTrade(sigAF, time + 3600000, color.new(color.purple, 0), txt)
+
+// ───────────────────────────── stats
+tblPos = tblPosS == "Вгорі праворуч" ? position.top_right : tblPosS == "Вгорі по центру" ? position.top_center : tblPosS == "Внизу праворуч" ? position.bottom_right : tblPosS == "Внизу по центру" ? position.bottom_center : position.bottom_left
+var table tb = table.new(tblPos, 3, 8, bgcolor = color.new(color.black, 30), border_width = 1)
+cellL(int c, int r, string t) => table.cell(tb, c, r, t, text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+cellR(int c, int r, string t, color col) => table.cell(tb, c, r, t, text_color = col, text_size = size.small, text_halign = text.align_right)
+if showStats and onM5 and barstate.islast
+    table.cell(tb, 0, 0, "SMC v5 · " + str.tostring(histDays) + " дн.", text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    cellR(1, 0, "v4", color.white)
+    cellR(2, 0, "AF", color.white)
+    cellL(0, 1, "Угод")
+    cellR(1, 1, str.tostring(S.nTr), color.white)
+    cellR(2, 1, str.tostring(SA.nTr), color.white)
+    cellL(0, 2, "Вінрейт")
+    cellR(1, 2, S.nTr > 0 ? str.tostring(100.0 * S.nWin / S.nTr, "#") + "%" : "—", color.white)
+    cellR(2, 2, SA.nTr > 0 ? str.tostring(100.0 * SA.nWin / SA.nTr, "#") + "%" : "—", color.white)
+    cellL(0, 3, "Разом R")
+    cellR(1, 3, str.tostring(S.sumR, "0.0"), S.sumR >= 0 ? color.lime : color.red)
+    cellR(2, 3, str.tostring(SA.sumR, "0.0"), SA.sumR >= 0 ? color.lime : color.red)
+    cellL(0, 4, "R з вагою ризику")
+    cellR(1, 4, str.tostring(S.sumW, "0.0"), S.sumW >= 0 ? color.lime : color.red)
+    cellR(2, 4, str.tostring(SA.sumW, "0.0"), SA.sumW >= 0 ? color.lime : color.red)
+    cellL(0, 5, "A / B, R (v4)")
+    cellR(1, 5, str.tostring(S.sumA, "0.0") + " / " + str.tostring(S.sumB, "0.0"), color.white)
+    cellR(2, 5, "", color.white)
+    cellL(0, 6, "Разом з вагою (v4 + AF)")
+    cellR(1, 6, str.tostring(S.sumW + SA.sumW, "0.0"), S.sumW + SA.sumW >= 0 ? color.lime : color.red)
+    cellR(2, 6, "", color.white)
+    cellL(0, 7, "Пропущено v4 (тейк до входу)")
+    cellR(1, 7, str.tostring(S.nMiss), color.white)
+    cellR(2, 7, "", color.white)
