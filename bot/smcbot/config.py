@@ -1,15 +1,14 @@
 """Strategy configuration.
 
-Every number here comes from the user's decisions (claude/decisions.md) or from the
-course methodology (claude/methodology/*). Values marked PROPOSAL are defaults that the
-course does not fix; they are parameters to tune in backtests.
+Every number here comes from the user's decisions or from the course methodology.
+Values marked PROPOSAL are defaults that the course does not fix; they are parameters
+to tune in backtests.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 NY_TZ = "America/New_York"
-KYIV_TZ = "Europe/Kyiv"
 
 
 @dataclass
@@ -24,9 +23,6 @@ class Instrument:
 @dataclass
 class Config:
     # --- timeframes (Q2) ---
-    tf_trend: str = "4h"          # H4 trend (BOS/Conf state machine)
-    tf_bias: str = "1D"           # D1 bias; W1 used as an extra factor
-    tf_pd: str = "1h"             # H1 Premium/Discount
     tf_poi: tuple = ("15min", "1h", "4h")   # POI timeframes (M15 primary)
     tf_entry: tuple = ("5min", "3min")      # Shift must appear on both (sync)
 
@@ -37,7 +33,6 @@ class Config:
     # --- killzones in New York time (Q3: London 09-12, NY 15-17 Kyiv) ---
     killzones_ny: tuple = (("LONDON", "02:00", "05:00"), ("NY", "08:00", "10:00"))
     asia_ny: tuple = ("19:00", "02:00")     # 02:00-09:00 Kyiv (L26 webinar), PROPOSAL Q18
-    cbdr_ny: tuple = ("16:00", "20:00")     # 23:00-03:00 Kyiv (L30)
 
     # --- filters ---
     require_d1_bias: bool = True            # D1 trend must agree with the trade
@@ -46,20 +41,17 @@ class Config:
     sweep_return_bars: int = 3              # PROPOSAL Q9: close back within <=3 bars
     sweep_lookback_bars: int = 36           # M5 bars between sweep and Shift (3h)
     sync_window_bars: int = 6               # M5 bars: M3 Shift must be within this window
-    eq_tol_pips: float = 2.0                # PROPOSAL EQH/EQL tolerance
     min_fvg_pips: float = 0.5               # PROPOSAL min FVG size on M1-M5
     ob_max_engulf_bars: int = 3             # PROPOSAL
-    manip_max_pips: float = 30.0            # L42: manipulation beyond NYM/DO <= 30 pips (factor)
 
     # --- exits (Q5, Q6, PRO) ---
     min_rr: float = 2.0                     # Q6
     fixed_tp_r_medium_minor: float = 4.0    # PRO: Medium/Minor liquidity -> fixed +4R
     partial_at_r: float = 1.0               # PRO: 50% at 1R
     partial_frac: float = 0.5
-    be_mode: str = "c"                      # a|b|c|d (Q5), backtest compares all
+    be_mode: str = "c"                      # stop-management mode a|b|c|d (v5/v6 use c)
     sl_buffer_pips: float = 0.5             # PROPOSAL: buffer = spread + 0.5 pip
     close_time_ny: str = "12:00"            # PROPOSAL Q22: close leftovers 19:00 Kyiv
-    order_expiry: str = "killzone_end"
 
     # --- strategy variant knobs (tested with python -m smcbot experiments) ---
     entry_mode: str = "fvg_edge"         # fvg_edge | fvg_ce | ob_open | nearest | market | retest | retest_fvg | ote | ifvg
@@ -85,7 +77,7 @@ class Config:
     max_spread_frac: float = 0.0         # skip if spread / risk > this (0 = off), e.g. 0.12
     require_asia_london: bool = False    # in the London killzone only take sweeps of the Asia range (S3 strict)
     partial_enabled: bool = True
-    # --- v0.7 new entry models / filters ---
+    # --- entry models / filters ---
     session_pools: bool = False          # add London session high/low (LON_H/LON_L, 02-05 NY) as MEDIUM pools
     sweep_pools: tuple = ()              # only these swept-pool name prefixes, e.g. ("ASIA","LON") = Session Raid; () = all
     po3_max_pips: float = 0.0            # PO3 (L42): sweep must be below the NY-midnight open by <= X pips (0 = off)
@@ -136,13 +128,13 @@ class Config:
     af_min_sl_pips: float = 5.0
     af_symbols: tuple = ()               # AF only on these symbols, e.g. ("EURUSD",); () = all
     af_risk_mult: float = 0.5            # risk of an AF trade relative to the base risk
+    af_be_at_r: float = 0.0              # AF: move the stop to entry once price has gone X*R in favour (0 = off)
 
     # --- risk (Q4: PRO rules) ---
     risk_pct: float = 0.003
     daily_max_loss_pct: float = 0.015
     daily_max_sl: int = 5
     max_losses_same_place: int = 3
-    max_open_per_pair: int = 1
     block_same_direction: bool = True    # PRO rule: no second pair open in the same direction; False = off
     corr_second_risk_mult: float = 0.0   # 0 = off (same-direction cross-pair signals stay blocked); >0 = take them at risk_mult * X
     fill_through_pips: float = 0.0       # stress test: a limit fills only after price trades THROUGH the level by X pips (fill price stays entry)
@@ -152,18 +144,10 @@ class Config:
         sets = {
             "user": self.killzones_ny,
             "extended": (("LONDON", "02:00", "07:00"), ("NY", "07:00", "12:00")),
-            "london": (self.killzones_ny[0],),
             "ny": (self.killzones_ny[1],),
-            "london_ext": (("LONDON", "02:00", "07:00"),),
-            "ny_ext": (("NY", "07:00", "12:00"),),
             # ICT Silver Bullet windows (London 03-04, NY AM 10-11 New York time)
             "silver_bullet": (("LONDON", "03:00", "04:00"), ("NY", "10:00", "11:00")),
-            "sb_ny": (("NY", "10:00", "11:00"),),
-            "asia": (("ASIA", "19:00", "23:59"),),
             "ext_asia": (("ASIA", "19:00", "23:59"), ("LONDON", "02:00", "07:00"), ("NY", "07:00", "12:00")),
-            "ny_pm": (("NYPM", "13:00", "15:30"),),
-            "asia_early": (("ASIA", "18:00", "21:00"),),
-            "asia_late": (("ASIA", "21:00", "23:59"),),
         }
         if self.killzone_set not in sets:
             raise ValueError(f"killzone_set must be one of {list(sets)}")
@@ -177,8 +161,8 @@ class Config:
         return dataclasses.replace(self, **{k: (tuple(v) if isinstance(v, list) else v) for k, v in kw.items()})
 
 
-# Frozen strategy versions (see claude/backtest-log.md). Select with STRATEGY=v2 in .env
-# or "preset": "v2" in experiments.json; CFG_* / variant params still override on top.
+# Frozen strategy versions; select with STRATEGY=<name> (default v6) in .env
+# or "preset": "<name>" in experiments.json; CFG_* / variant params still override on top.
 PRESETS = {
     "course": {},
     "v1": {"killzone_set": "extended", "min_sl_pips": 5, "tp_mode": "fixed3",
@@ -187,8 +171,5 @@ PRESETS = {
 PRESETS["v2"] = {**PRESETS["v1"], "allow_continuation": True, "partial_at_r": 2.0}
 PRESETS["v3"] = {**PRESETS["v2"], "holiday_mode": "us_ny"}      # no NY-killzone trades on US bank holidays
 PRESETS["v4"] = {**PRESETS["v3"], "grade_mode": "weight"}        # candidate: A/B setup grading, risk 1.5x / 0.5x
-PRESETS["v5"] = {**PRESETS["v4"], "cont_window_bars": 144, "asia_fake": True}   # final: v4 + AF (BE mode c)
-PRESETS["v6"] = {**PRESETS["v5"], "corr_second_risk_mult": 0.5}   # v5 + second correlated pair at half risk (round 12)
-PRESETS["v5_core"] = {**PRESETS["v4"], "cont_window_bars": 144}                  # v5 without AF
-PRESETS["af_only"] = {**PRESETS["v4"], "asia_fake": True, "asia_fake_only": True}  # AF alone (research)
-PRESETS["v3_asia"] = {**PRESETS["v3"], "killzone_set": "ext_asia"}  # candidate v4: + Asia window 19:00-24:00 NY
+PRESETS["v5"] = {**PRESETS["v4"], "cont_window_bars": 144, "asia_fake": True}   # v4 + AF (BE mode c)
+PRESETS["v6"] = {**PRESETS["v5"], "corr_second_risk_mult": 0.5}   # final: v5 + second correlated pair at half risk (round 12)

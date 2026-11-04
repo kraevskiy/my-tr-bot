@@ -5,6 +5,7 @@ Commands
   experiments   many variants from experiments.json       -> results/<run_id>/experiments.csv, report.md, ...
   analyze       deep HTML report for a run / variant      -> <run>/<variant>/analysis_<mode>.html
   neighbours    random +-pct neighbours of a preset + summary -> experiments JSON / robustness verdicts
+  prop          prop-firm 2-phase challenge simulator     -> pass/fail odds (rolling + bootstrap)
   news          refresh the ForexFactory calendar         -> data/news/ff_calendar.csv
   sessions      Asia/Frankfurt/London/NY study            -> results/sessions_<SYMBOL>.csv
   presets       list strategy presets and what they change
@@ -22,6 +23,7 @@ COMMANDS = {
     "experiments": "smcbot.apps.experiments",
     "analyze": "smcbot.apps.analyze",
     "neighbours": "smcbot.apps.neighbours",
+    "prop": "smcbot.apps.prop",
     "news": "smcbot.apps.news",
     "sessions": "smcbot.apps.sessions",
 }

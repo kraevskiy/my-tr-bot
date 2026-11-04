@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smcbot"
-version = "3.2.0"
+version = "3.4.0"
 description = "ICT/SMC trading bot for EURUSD/GBPUSD: signals, M1 backtester, research tools"
 requires-python = ">=3.11"
 dependencies = ["pandas>=2.2", "numpy>=2.0", "requests>=2.31", "dukascopy-python==4.0.1",

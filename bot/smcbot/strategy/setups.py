@@ -4,7 +4,7 @@ Core: S1 "sweep -> Shift (M5 and M3 in sync) -> return to the cause of the break
 Long logic only; shorts run the same code on a price-mirrored copy of the market
 (open/high/low/close -> -open/-low/-high/-close), so both sides share one code path.
 
-Tags (Q7 "all setups"; first version derives them from S1 context):
+Tags (Q7 "all setups"; derived from S1 context):
   S1  with H4 trend and D1 bias
   S2  counter-trend to H4, allowed only after an M15 BOS in the trade direction (PRO)
   S3  London killzone + Asia low/high swept (PO3 London manipulation)
@@ -171,11 +171,6 @@ class SideModel:
         ns, tr = self._lk[tf]
         k = np.searchsorted(ns, t_ns, side="right") - 1
         return 0 if k < 0 else int(tr[k])
-
-    def state_at(self, tf: str, t_ns) -> pd.Series | None:
-        st = self.state[tf]
-        k = np.searchsorted(st["close_ns"].values, t_ns, side="right") - 1
-        return None if k < 0 else st.iloc[k]
 
     def pd_range_at(self, t_ns):
         self._prep_lookups()
@@ -667,9 +662,9 @@ class SymbolModels:
         if log is not None and logs:
             log.append(_to_frame(logs, self.inst.symbol))
         out = _to_frame(rows, self.inst.symbol)
-        if getattr(cfg, "asia_fake_only", False):
+        if cfg.asia_fake_only:
             out = pd.DataFrame()
-        if getattr(cfg, "asia_fake", False) and (not cfg.af_symbols or self.inst.symbol in cfg.af_symbols):
+        if cfg.asia_fake and (not cfg.af_symbols or self.inst.symbol in cfg.af_symbols):
             from smcbot.strategy.asia_fake import asia_fake_signals
             af = asia_fake_signals(self.m1, cfg, self.inst)
             if funnel is not None:

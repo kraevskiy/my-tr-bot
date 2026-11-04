@@ -17,12 +17,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from smcbot.config import NY_TZ
+
 SESSIONS = (
-    ("ASIA", "America/New_York", "19:00", "02:00"),
+    ("ASIA", NY_TZ, "19:00", "02:00"),
     ("FRA", "Europe/Berlin", "08:00", "09:00"),
     ("LON", "Europe/London", "08:00", "12:00"),
-    ("NY", "America/New_York", "08:00", "12:00"),
-    ("PM", "America/New_York", "12:00", "17:00"),
+    ("NY", NY_TZ, "08:00", "12:00"),
+    ("PM", NY_TZ, "12:00", "17:00"),
 )
 
 
@@ -31,7 +33,7 @@ def _trading_day(idx_ny: pd.DatetimeIndex) -> pd.Index:
 
 
 def session_table(m1: pd.DataFrame, pip: float = 0.0001) -> pd.DataFrame:
-    idx = m1.index.tz_convert("America/New_York")
+    idx = m1.index.tz_convert(NY_TZ)
     day = _trading_day(idx)
     o, h, l, c = (m1[k].values for k in ("open", "high", "low", "close"))
     base = pd.DataFrame({"day": day, "o": o, "h": h, "l": l, "c": c}, index=idx)
@@ -88,7 +90,7 @@ def add_news(t: pd.DataFrame, cal: pd.DataFrame, symbol: str) -> pd.DataFrame:
     if cal is None or not len(cal):
         return t
     e = cal[cal["impact"] == "High"].copy()
-    e["ny"] = e["time"].dt.tz_convert("America/New_York")
+    e["ny"] = e["time"].dt.tz_convert(NY_TZ)
     e["day"] = _trading_day(pd.DatetimeIndex(e["ny"]))
     e["hhmm"] = e["ny"].dt.hour * 60 + e["ny"].dt.minute
     other = [c for c in PAIR_CCY.get(symbol, ()) if c != "USD"]

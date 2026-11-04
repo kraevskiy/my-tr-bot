@@ -1,4 +1,4 @@
-"""v0.7: news calendar, new entry models / filters, time stop, CFG_ overrides."""
+"""News calendar, entry models and filters, time stop, CFG_ overrides."""
 import numpy as np
 import pandas as pd
 import pytest

@@ -10,4 +10,4 @@ Layers (each depends only on the ones above it):
     research               analytics reports, session study
     apps / cli             command-line entry points (python -m smcbot ...)
 """
-__version__ = "3.2.0"
+__version__ = "3.4.0"

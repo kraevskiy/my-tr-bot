@@ -1,4 +1,4 @@
-# SMC-бот для EURUSD / GBPUSD — v3.2 (Strategy v6)
+# SMC-бот для EURUSD / GBPUSD — v3.4 (Strategy v6)
 
 Бот формалізує методологію курсу (ICT/SMC) у систему, яку можна перевірити на історії. Два сетапи та правило кореляції:
 **v4** — свіп ліквідності → зсув структури на M5 і M3 → лімітний вхід у FVG; **AF** — фейковий пробій діапазону Азії
@@ -44,7 +44,7 @@ docker compose run --rm backtest
 1. Python 3.11–3.13 з python.org («Add to PATH»).
 2. У MT5: Сервіс → Налаштування → Графіки → «Макс. барів у вікні» = Unlimited; EURUSD і GBPUSD в «Огляді ринку»; термінал запущений.
 3. Подвійний клік по `run_windows.bat` (перший запуск створить `.venv` і `.env`; у `.env` поставте `DATA_SOURCE=mt5`).
-   Інші команди: `run_windows.bat experiments`, `run_windows.bat analyze results\<run> V4` тощо.
+   Інші команди: `run_windows.bat experiments`, `run_windows.bat analyze results\<run> V5` тощо.
 
 ### Без Docker (будь-яка ОС)
 
@@ -60,10 +60,11 @@ smcbot backtest                   # те саме, що python -m smcbot backtes
 | Команда | Що робить | Результат |
 |---|---|---|
 | `backtest` | один прогін стратегії з `.env` | `results/summary.txt`, `signals.csv`, `trades_c.csv` |
-| `experiments [--only A,B] [--modes b] [--file f.json]` | багато варіантів з `experiments.json` за раз | `results/<run_id>/experiments.csv`, `report.md`, угоди та HTML-звіт по кожному варіанту з `"log": true` |
-| `analyze <run_dir> [variant] [--best]` | глибокий HTML-звіт: t-stat, bootstrap, Monte Carlo, розрізи, MFE/MAE, walk-forward, новини, класи A/B | `<run>/<variant>/analysis_b.html` |
+| `experiments [--only A,B] [--modes c] [--file f.json]` | багато варіантів з `experiments.json` (або `--file`) за раз | `results/<run_id>/experiments.csv`, `report.md`, угоди та HTML-звіт по кожному варіанту з `"log": true` |
+| `analyze <run_dir> [variant] [--best] [--mode c]` | глибокий HTML-звіт: t-stat, bootstrap, Monte Carlo, розрізи, MFE/MAE, walk-forward, новини, класи A/B | `<run>/<variant>/analysis_c.html` |
 | `news` | оновити календар ForexFactory (дзеркало, UTC) | `data/news/ff_calendar.csv` |
 | `sessions` | дослідження Азія → Франкфурт → Лондон → NY | `results/sessions_<SYMBOL>.csv` |
+| `prop <trades_c.csv> --risk 0.75,1 [--paths 10000 --seed 7 --mae --trailing]` | симулятор двофазного проп-челенджу (rolling-старти + bootstrap по місяцях; лише закриті угоди) | таблиці в консолі |
 | `presets` | список готових стратегій | — |
 | `config` | показати фактичну конфігурацію (пресет + `.env`) | — |
 | `neighbours [--n 60 --pct 0.2 --seed 7 --out f.json]` \| `--summarize <run_dir>` | випадкові сусіди пресету ±20 % для `experiments --file`; підсумок і вердикти робастності | `f.json`; вердикти в консоль |
@@ -76,20 +77,23 @@ smcbot backtest                   # те саме, що python -m smcbot backtes
 
 | Змінна | За замовч. | Що задає |
 |---|---|---|
-| `STRATEGY` | `v6` | готова стратегія: `course`, `v1`…`v4`, `v5_core` (v4 + покращення, без AF), `v5` (v4 + AF), **`v6`** (v5 + друга пара ×0.5), `af_only`, `v3_asia` |
+| `STRATEGY` | `v6` | готова стратегія: `course`, `v1`…`v4`, `v5` (v4 + AF), **`v6`** (v5 + друга пара ×0.5) |
 | `CFG_AF_RISK_MULT` | `0.5` | ризик угоди AF відносно базового |
 | `CFG_KZ_RISK_MULT`, `CFG_AF_SYMBOLS`, `CFG_BLOCK_SAME_DIRECTION` | `{}`, `[]`, `true` | множник ризику за кілзоною, AF лише на вказаних парах, заборона двох пар в один бік одночасно; напр. `CFG_KZ_RISK_MULT={"ASIA":0.5}`, `CFG_AF_SYMBOLS=["EURUSD"]`, `CFG_BLOCK_SAME_DIRECTION=false` |
 | `CFG_CORR_SECOND_RISK_MULT`, `CFG_FILL_THROUGH_PIPS` | `0.5` (у v6; `0` у v5), `0` | друга пара в той самий бік замість блокування — з ризиком ×X (напр. `0.5`; 0 = блокувати); стрес-тест виконання: ліміт заповнюється лише після проходу ціни крізь рівень на X піпсів (напр. `0.2`) |
+| `CFG_AF_BE_AT_R` | `0` | AF: стоп у беззбиток після +X R (0 = вимкнено). Перевірено в раунді 13 і відхилено: −4.0 Rw при 1R (−11.2 при 0.75R, −2.1 при 1.5R) |
 | `CFG_<ПОЛЕ>` | — | будь-яке поле `smcbot/config.py` поверх пресету, напр. `CFG_MIN_SL_PIPS=6`, `CFG_GRADE_MODE=a_only` |
-| `DATA_SOURCE` | `csv` | `csv` (експорт MT5), `mt5` (термінал, лише Windows), `dukascopy` |
+| `DATA_SOURCE` | `csv` | `csv` (експорт MT5), `mt5` (термінал, лише Windows), `dukascopy` (ключ не потрібен; кеш `DATA_DIR/cache/<SYMBOL>/YYYY-MM.csv.gz`; `DATE_TO` виключний, тож 2019–2023 = `DATE_TO=2024-01-01`) |
 | `CSV_EURUSD`, `CSV_GBPUSD` | `/app/data/<SYM>_M1*.csv` | шляхи / маски до файлів |
 | `MT5_SERVER_TZ` | `ny_close` | часовий пояс сервера брокера (більшість — GMT+2/+3 з переходом, як NY close) |
 | `SYMBOLS`, `DATE_FROM`, `DATE_TO` | `EURUSD,GBPUSD`, `2024-01-01`, сьогодні | що і за який період |
 | `RISK_PCT`, `DAILY_MAX_LOSS_PCT`, `DAILY_MAX_SL` | `0.3`, `1.5`, `5` | ризик PRO |
-| `BE_MODES` | `c` | режим стопу: `c` (v5) — після часткової 2R у беззбиток на новому M5-свінгу; також `a`/`b`/`d` |
+| `BE_MODES` | `c` | режим стопу: `c` (v5/v6) — після часткової 2R у беззбиток на новому M5-свінгу; також `a`/`b`/`d` |
 | `OOS_FROM` | `2026-01-01` | межа in-sample / out-of-sample у звітах |
 
-Свої варіанти для перевірки — в `experiments.json`: `"preset"` + список `variants` з будь-якими `params`.
+`.env` підхоплюють лише Docker Compose (`env_file`) і `run_windows.bat`; при прямому `python -m smcbot` змінні треба експортувати самому.
+
+Свої варіанти для перевірки — в окремому `experiments_r<N>.json` (формат як у `experiments.json`): `"preset"` + список `variants` з будь-якими `params`.
 
 ## 4. Структура репозиторію
 
@@ -103,29 +107,35 @@ smcbot/
   strategy/asia_fake.py         сетап AF: фейк Азії на відкритті Лондона
   engine/backtest.py            симуляція на M1, стоп-менеджмент, ліміти PRO, метрики
   research/                     analytics (HTML-звіти), sessions (зв'язок сесій)
-  apps/                         реалізація команд (neighbours.py — сусіди пресету та вердикти)
+  apps/                         реалізація команд (neighbours.py — сусіди пресету та вердикти; prop.py — симулятор проп-челенджу)
 news/ff_calendar.csv            вшитий календар (USD/EUR/GBP, 2023–2026)
-tests/                          81 тест (структура, зони, без заглядання в майбутнє, угоди, новини, класи, AF…)
-experiments.json                поточний раунд перевірок (v5: v4 vs v5_core vs v5, ризик AF)
-experiments_r11.json            раунд 11 (V5_CORE, H1…H7)
-experiments_r12.json            раунд 12 (стрес виконання, блок K, corr_second_risk_mult)
+tests/                          97 тестів (структура, зони, без заглядання в майбутнє, угоди, новини, класи, AF…)
+experiments.json                опублікований раунд 10 (v4 проти v5)
+experiments_r11.json  _r12  _r13  _r15   раунди 11, 12, 13, 15 (див. RESEARCH_LOG.md); монтуються в Docker-сервіс experiments
+results_dk/                     результати на даних Dukascopy 2019–2023 (раунд 15), не в git
 RESEARCH_LOG.md                 журнал досліджень з раунду 11
 STRATEGY.md  ARCHITECTURE.md  CHANGELOG.md
 ```
 
-Старі скрипти `run_backtest.py`, `run_experiments.py`, `analyze.py`, `fetch_news.py`, `study_sessions.py` залишені для сумісності
-і просто викликають відповідні команди.
-
 ## 5. Індикатор для TradingView
 
-`tradingview/smc_v5.pine` — обидва сетапи на графіку: на M5 — сигнали, лінії, результат кожної угоди і статистика окремо v4 / AF;
-на H1 і вище — мітки входів з результатом; сповіщення TradingView. Як встановити — `tradingview/README.md`.
+`tradingview/smc_v6.pine` — обидва сетапи на графіку: на M5 — сигнали, лінії, результат кожної угоди і статистика окремо v4 / AF;
+на H1 і вище — мітки входів з результатом; сповіщення TradingView (з нагадуванням правила v6 — ×0.5 по другій парі — у сповіщеннях). Як встановити — `tradingview/README.md`.
+Покрокове налаштування індикатора і сповіщень: `tradingview/README.md`, розділи «Покрокове налаштування» та «Алерти: покроково».
 
 ## 6. Що далі
 
 - Форвард-тест v6 на демо (2–3 місяці): AF з ризиком ×0.5, поки не підтвердиться ~+0.4R/угоду; друга пара в той самий бік — з ризиком ×0.5; сповіщення з індикатора або Telegram-бот.
-- Агресивніша альтернатива — H7 (`CFG_BLOCK_SAME_DIRECTION=false`: друга пара з повним ризиком): пройшла правила раунду 11 (+8.5 Rw), але це зміна ризик-політики, не сигналу; сумарна експозиція при двох лонгах ≈ 1.8σ проти ≈ 1.38σ у v6. Блок → ×0.5 → повний розмір: кожен крок ≈ +2 Rw і ≈ +0.3R просадки на медіані сусідів; v6 — збалансована точка.
+- Агресивніша альтернатива: H7 (друга пара з повним ризиком, `CFG_BLOCK_SAME_DIRECTION=false`): +8.5 Rw, але це зміна ризик-політики, а не сигналу; v6 це збалансована точка. Деталі й медіани сусідів: `RESEARCH_LOG.md`, `STRATEGY.md`.
 - Стрес реалістичності виконання коштує 3–8 % результату (−4.7 Rw при 0.2 піпса, −12.2 Rw при 0.5), тож очікування для живої торгівлі слід відповідно зменшити.
 - Ті самі правила на інших інструментах (USDJPY, GBPJPY, AUDUSD, USDCAD, XAUUSD) — найсильніша перевірка, що перевага справжня.
 
-Реалістичні очікування від v5 — медіана сусідів (≈ +117 Rw за 34 міс., DD 5–6R), а не пік бектесту; для v6 медіана сусідів ≈ +119 Rw / 34 міс., DD ≈ 5.7R (p95 8.2R).
+Реалістичні очікування: медіана сусідів v6 (≈ +119 Rw за 34 міс., DD ≈ 5.7R), а не пік бектесту.
+
+## 7. Проп-челендж
+
+Симулятор: `python -m smcbot prop results/<run>/<variant>/trades_c.csv --risk 0.5,0.75,1,1.5 --paths 10000 --seed 7` (правила: 10 % + 5 %, денний ліміт 5 % від еквіті, статична межа 10 %, мінімум 4 дні на фазу, без обмеження строку). Враховує лише закриті угоди — плаваючі просадки не видно, тож реальний ризик провалу вищий за 0 у таблицях.
+
+Рекомендація: ризик 0.5 % на R (раунд 13 давав 0.75–1.0 %, раунди 15–16 знизили), `DAILY_MAX_LOSS_PCT` = 3 × `RISK_PCT`, `DAILY_MAX_SL=3`, v6 без змін, обидві пари. Медіана проходження обох фаз (bootstrap): v6 при 1 % ≈ 100 днів (p90 173), реалістично (медіана сусідів) ≈ 135 (215).
+
+Увага (раунд 15): на 2019–2023 v6 краю не має (−8.8 Rw, DD 24.2R), ймовірність провалу 57–69 % при 0.75–1 % на R, тож 0.5 % і наперед заданий kill switch (напр. −8R) безпечніші; форвард-тест на демо обов'язковий. Усі таблиці: `RESEARCH_LOG.md`, раунд 13; історія: `CHANGELOG.md`.

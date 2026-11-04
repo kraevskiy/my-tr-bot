@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY smcbot ./smcbot
 COPY tests ./tests
 COPY news ./news
-COPY experiments.json pyproject.toml README.md STRATEGY.md ARCHITECTURE.md ./
+COPY experiments*.json pyproject.toml README.md STRATEGY.md ARCHITECTURE.md ./
 
 RUN useradd --create-home --uid 1000 bot && mkdir -p /app/data /app/results \
     && chown -R bot:bot /app

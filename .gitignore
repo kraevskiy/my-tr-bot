@@ -4,14 +4,11 @@
 !.env.example
 
 # --- Market data & results (large, regenerated) ---
-data/*
-!data/.gitkeep
-!data/news/
-data/news/*
-!data/news/.gitkeep
+bot/data/*
+!bot/data/news/
+bot/data/news/*
 results/
 results_*/
-!results_example/
 cache/
 *.pkl
 *.parquet

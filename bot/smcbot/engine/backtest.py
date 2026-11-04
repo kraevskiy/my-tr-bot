@@ -7,7 +7,7 @@ Fill model (conservative):
 Order expiry: end of the killzone the signal belongs to; also cancelled if price
 reaches TP before filling.
 
-Management after the partial (PRO: 50% at 1R), variants from Q5:
+Management after the partial (50 % at the partial level, 2R in v2+), variants from Q5:
   a: SL -> entry right away
   b: SL untouched (BE is reached by the partial itself)
   c: SL -> entry once the first M5 higher low (lower high for shorts) is confirmed
@@ -64,8 +64,8 @@ def simulate_trade(sig: pd.Series, m1: pd.DataFrame, m5_swings: pd.DataFrame,
     entry, sl0, tp = float(sig["entry"]), float(sig["sl"]), float(sig["tp"])
     t0 = sig["signal_time"]
     market = str(sig.get("order", "limit")) == "market"
-    kzs = cfg.killzones() if hasattr(cfg, "killzones") else cfg.killzones_ny
-    expiry = t0 + pd.Timedelta(minutes=cfg.order_expiry_min) if getattr(cfg, "order_expiry_min", 0) \
+    kzs = cfg.killzones()
+    expiry = t0 + pd.Timedelta(minutes=cfg.order_expiry_min) if cfg.order_expiry_min \
         else _kz_end(t0, kzs)
     if expiry <= t0:
         expiry = t0 + pd.Timedelta(minutes=60)
@@ -77,15 +77,17 @@ def simulate_trade(sig: pd.Series, m1: pd.DataFrame, m5_swings: pd.DataFrame,
         return {"status": "late"}           # signal at/after the daily close time: no trade
     if close_at <= t0:
         close_at = t0 + pd.Timedelta(hours=2)
-    partial_on = getattr(cfg, "partial_enabled", True)
-    hold_min, hold_end = getattr(cfg, "max_hold_min", 0), None
-    slip = getattr(cfg, "slippage_pips", 0.0) * inst.pip      # extra cost on stop and market/time exits
-    thru = getattr(cfg, "fill_through_pips", 0.0) * inst.pip   # stress test: limit must trade through the level
-    lock_r = getattr(cfg, "lock_r_after_partial", 0.0)        # after the partial move the stop to +X R
+    partial_on = cfg.partial_enabled
+    hold_min, hold_end = cfg.max_hold_min, None
+    slip = cfg.slippage_pips * inst.pip      # extra cost on stop and market/time exits
+    thru = cfg.fill_through_pips * inst.pip   # stress test: limit must trade through the level
+    lock_r = cfg.lock_r_after_partial        # after the partial move the stop to +X R
     inval = float(sig.get("inval", np.nan)) if pd.notna(sig.get("inval", np.nan)) else np.nan
-    inval_on = bool(getattr(cfg, "exit_on_fvg_fail", False)) and not np.isnan(inval)
-    inval_buf = getattr(cfg, "fvg_fail_buffer_pips", 0.0) * inst.pip
+    inval_on = bool(cfg.exit_on_fvg_fail) and not np.isnan(inval)
+    inval_buf = cfg.fvg_fail_buffer_pips * inst.pip
     p_r = float(sig.get("partial_r", cfg.partial_at_r)) if pd.notna(sig.get("partial_r", np.nan)) else cfg.partial_at_r
+    be_r = float(sig.get("be_at_r", 0) or 0)
+    be_r = 0.0 if be_r != be_r else be_r             # NaN for v4 rows after concat
 
     seg = m1.loc[t0:]
     if seg.empty:
@@ -108,6 +110,7 @@ def simulate_trade(sig: pd.Series, m1: pd.DataFrame, m5_swings: pd.DataFrame,
     filled, fill_t = market, (ts[0] if market else None)
     sl = sl0
     rem, realized = 1.0, 0.0
+    be_done = False
     partial_t = None
     exits = []
     mfe = mae = 0.0
@@ -151,9 +154,13 @@ def simulate_trade(sig: pd.Series, m1: pd.DataFrame, m5_swings: pd.DataFrame,
                 break
         if stop_hit:
             realized += rem * ((sl - entry) * d - slip) / R
-            exits.append(("SL" if partial_t is None else "SL_AFTER_PARTIAL", t, sl, rem))
+            exits.append(("SL_AFTER_PARTIAL" if partial_t is not None else ("SL_BE" if be_done else "SL"), t, sl, rem))
             rem = 0.0
             break
+        if be_r > 0 and not be_done and (fav - entry) * d >= be_r * R:
+            be_done = True
+            if (entry - sl) * d > 0:          # stop still on the losing side of entry
+                sl = entry                    # same convention as BE mode "a"
         mfe = max(mfe, (fav - entry) * d / R)
         if partial_on and partial_t is None and (fav - entry) * d >= p_r * R:
             px = entry + d * p_r * R

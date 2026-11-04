@@ -5,3 +5,4 @@ results/
 .pytest_cache
 *.zip
 .venv/
+results_dk/

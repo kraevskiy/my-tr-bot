@@ -1,4 +1,4 @@
-"""v5: preset, BE mode default and the AF (Asia fake-out) setup."""
+"""v5/v6: presets, BE mode default and the AF (Asia fake-out) setup."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -165,3 +165,10 @@ def test_af_no_lookahead_on_synthetic():
     cut = sig.signal_time.iloc[0]
     again = asia_fake_signals(m1.loc[:cut - pd.Timedelta(minutes=1)], cfg, Instrument("EURUSD"))
     assert len(again) and np.isclose(again.iloc[0].sl, sig.iloc[0].sl)
+
+
+def test_af_be_at_r_in_signal_rows():
+    cfg = Config().replace(**PRESETS["v6"])
+    assert (asia_fake_signals(_scenario(), cfg, INST)["be_at_r"] == 0.0).all()
+    sig = asia_fake_signals(_scenario(), cfg.replace(af_be_at_r=1.0), INST)
+    assert len(sig) == 1 and (sig["be_at_r"] == 1.0).all()

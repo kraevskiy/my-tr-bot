@@ -18,9 +18,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from smcbot.config import Config, Instrument
+from smcbot.config import NY_TZ, Config, Instrument
 
-NY = "America/New_York"
+NY = NY_TZ
 
 
 def _hm(s: str) -> int:
@@ -106,7 +106,7 @@ def asia_fake_signals(m1: pd.DataFrame, cfg: Config, inst: Instrument) -> pd.Dat
             "order": "market", "entry": entry, "sl": stop, "tp": entry + side * cfg.af_tp_r * risk,
             "risk": risk, "risk_pips": risk / pip, "rr": cfg.af_tp_r, "pool": "ASIA_H" if s == 1 else "ASIA_L",
             "pool_level": level, "tier": "MEDIUM", "killzone": "LONDON", "grade": "AF",
-            "risk_mult": cfg.af_risk_mult, "partial_r": 99.0, "score": np.nan,
+            "risk_mult": cfg.af_risk_mult, "partial_r": 99.0, "be_at_r": cfg.af_be_at_r, "score": np.nan,
             "af_adr_used": adr, "af_break_time": tclose[i], "af_extreme": ext,
         })
     return pd.DataFrame(rows)

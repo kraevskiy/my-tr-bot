@@ -1,0 +1,4 @@
+{"_about": "Round 15: v6 on independent Dukascopy history 2019-2023 (true OOS, no parameter changes). Pre-registered: feed check v6 Dukascopy 2024-2026 vs MT5 CSV (trades +-15 %, w_totalR +-25 %); edge confirmed if w_totalR > 0, w_t_stat >= 2, positive in >= 4 of 5 years, w_avgR >= 0.25, w_maxDD <= 10R, 5-12 trades/month; weaker-but-present if w_totalR > 0, t >= 1, >= 3 of 5 years; otherwise no pre-2024 edge.", "preset": "v6", "base": {}, "modes": "c", "variants": [
+ {"name": "V6", "group": "control", "why": "v6 as published, independent 2019-2023 history (Dukascopy)", "params": {}, "log": true},
+ {"name": "V5", "group": "control", "why": "v5 (block second correlated pair)", "params": {"corr_second_risk_mult": 0.0}}
+]}

@@ -4,7 +4,7 @@
     python -m smcbot news --since 2020-01-01
     docker compose run --rm news
 
-Source mirror (updated daily, times in UTC): smcbot.news.NEWS_URL.
+Source mirror (updated daily, times in UTC): smcbot.market.news.NEWS_URL.
 You can also pass your own ForexFactory-style CSV: python -m smcbot news --file my.csv --tz UTC
 """
 from __future__ import annotations

@@ -15,10 +15,11 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("RISK_PCT", "0.5")
     monkeypatch.setenv("SYMBOLS", "eurusd")
     monkeypatch.setenv("CSV_EURUSD", "/x.csv")
-    monkeypatch.setenv("REQUIRE_D1_BIAS", "false")
+    monkeypatch.setenv("STRATEGY", "v6")          # v6 sets require_d1_bias False; the named var must win
+    monkeypatch.setenv("REQUIRE_D1_BIAS", "true")
     s, cfg = load_settings()
     assert cfg.risk_pct == 0.005 and s.symbols == ["EURUSD"]
-    assert s.csv_paths["EURUSD"] == "/x.csv" and cfg.require_d1_bias is False
+    assert s.csv_paths["EURUSD"] == "/x.csv" and cfg.require_d1_bias is True
 
 
 def test_mt5_csv_server_time_to_ny(tmp_path):

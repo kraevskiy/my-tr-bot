@@ -279,3 +279,64 @@ def test_new_engine_knobs_default_off():
     from smcbot.config import PRESETS
     for cfg in (Config(), Config().replace(**PRESETS["v5"])):
         assert cfg.corr_second_risk_mult == 0.0 and cfg.fill_through_pips == 0.0
+
+
+# --- AF breakeven knob (be_at_r) -------------------------------------------------------------
+def _be_sim(bars, be_at_r, side=1, **cfg_kw):
+    """Market trade at 02:00, entry 1.1000, |sl| 10 pips, tp 3R; bars = [(minute, {col: value})]."""
+    m1 = _flat_m1()
+    for minute in range(bars[0][0] + 1, bars[-1][0]):      # in-between bars stay clear of the entry level
+        _hit(m1, _at("02:00") + pd.Timedelta(minutes=minute), open=1.1 + side * 0.0005, high=1.1 + side * 0.0005,
+             low=1.1 + side * 0.0005, close=1.1 + side * 0.0005)
+    for minute, vals in bars:
+        _hit(m1, _at("02:00") + pd.Timedelta(minutes=minute), **vals)
+    sig = _sig(side=side, sl=1.0990 if side == 1 else 1.1010, tp=1.1030 if side == 1 else 1.0970)
+    sig["be_at_r"] = be_at_r
+    return _sim(m1, Config().replace(**cfg_kw), pd.Series(sig))
+
+
+def test_be_after_1r_then_back_through_entry():
+    bars = [(5, {"high": 1.1011}), (10, {"low": 1.0995}), (15, {"low": 1.0985})]
+    r = _be_sim(bars, 1.0)
+    assert r["R_result"] == pytest.approx(0.0) and r["exit_kind"] == "SL_BE"
+    assert r["exit_time"] == _at("02:10")
+    r = _be_sim(bars, 0.0)
+    assert r["R_result"] == pytest.approx(-1.0) and r["exit_kind"] == "SL"
+
+
+def test_be_not_reached_keeps_stop():
+    bars = [(5, {"high": 1.1009}), (10, {"low": 1.0985})]
+    for be in (1.0, 0.0):
+        r = _be_sim(bars, be)
+        assert r["R_result"] == pytest.approx(-1.0) and r["exit_kind"] == "SL"
+
+
+def test_be_then_tp_unchanged():
+    bars = [(5, {"high": 1.1011}), (10, {"high": 1.1031, "low": 1.1005})]   # low stays above the BE stop
+    for be in (1.0, 0.0):
+        r = _be_sim(bars, be)
+        assert r["R_result"] == pytest.approx(3.0) and r["exit_kind"] == "TP"
+
+
+def test_be_same_bar_touch_stop_wins():
+    bars = [(5, {"high": 1.1011, "low": 1.0985})]
+    for be in (1.0, 0.0):
+        r = _be_sim(bars, be)
+        assert r["R_result"] == pytest.approx(-1.0) and r["exit_kind"] == "SL"
+
+
+def test_be_short_mirror():
+    bars = [(5, {"low": 1.0989}), (10, {"high": 1.1005}), (15, {"high": 1.1015})]
+    r = _be_sim(bars, 1.0, side=-1)
+    assert r["R_result"] == pytest.approx(0.0) and r["exit_kind"] == "SL_BE"
+    r = _be_sim(bars, 0.0, side=-1)
+    assert r["R_result"] == pytest.approx(-1.0) and r["exit_kind"] == "SL"
+
+
+def test_be_with_slippage():
+    # Market entry slips to 1.10005, so R = 10.5 pips and the +1R trigger is 1.10110. The BE stop sits at
+    # the (already slipped) entry; the stop exit subtracts the slip once more: (0 - 0.5 pip) / 10.5 pips.
+    bars = [(5, {"high": 1.1012}), (10, {"low": 1.0995})]
+    r = _be_sim(bars, 1.0, slippage_pips=0.5)
+    assert r["exit_kind"] == "SL_BE"
+    assert r["R_result"] == pytest.approx(-0.5 / 10.5)

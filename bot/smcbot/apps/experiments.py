@@ -1,7 +1,7 @@
 """Run many strategy variants on the same data and compare them.
 
   python -m smcbot experiments                       # all variants from experiments.json
-  python -m smcbot experiments --only V3,V4 --modes b
+  python -m smcbot experiments --only V5,V6
   python -m smcbot experiments --file my_variants.json --synthetic
 
 Detectors (structure, zones, pools, shifts) are computed once per symbol; each variant
@@ -12,7 +12,7 @@ Output: RESULTS_DIR/<run_id>/
   report.md              ranked table + funnel per variant, readable by a human (and by Claude)
   config.json            base config + data period
   <variant>/signals.csv, trades_<mode>.csv, funnel.json
-  baseline/candidates.csv.gz   every M5 Shift with features and ALL reasons it was rejected
+  <variant>/candidates.csv.gz  (variants with "log": true or --log-all) every M5 Shift with features and ALL reasons it was rejected
 Also appends to RESULTS_DIR/experiments_history.csv.
 """
 from __future__ import annotations
@@ -41,7 +41,6 @@ from smcbot.market import news as newsmod
 from smcbot.data.synthetic import make_m1
 
 DEFAULT_SPREADS = {"EURUSD": 1.0, "GBPUSD": 1.4}
-LOG_VARIANTS = {"baseline"}          # candidates log is large; keep it for the baseline
 
 
 def main(argv=None) -> int:
@@ -59,7 +58,7 @@ def main(argv=None) -> int:
     spec = json.loads(Path(a.file).read_text(encoding="utf-8"))
     from smcbot.config import PRESETS
     base_cfg = cfg0.replace(**PRESETS[spec.get("preset", "course")]).replace(**spec.get("base", {}))
-    modes = a.modes or spec.get("modes", "b")
+    modes = a.modes or spec.get("modes", "c")
     variants = spec["variants"]
     if a.only:
         keep = {x.strip() for x in a.only.split(",")}
@@ -105,7 +104,7 @@ def main(argv=None) -> int:
         cfg = base_cfg.replace(**v.get("params", {}))
         vdir = out / name
         vdir.mkdir(exist_ok=True)
-        funnel, cand_logs = {}, [] if (a.log_all or name in LOG_VARIANTS or v.get("log")) else None
+        funnel, cand_logs = {}, [] if (a.log_all or v.get("log")) else None
         sigs = pd.concat([models_for(cfg)[s].signals(cfg, funnel, cand_logs) for s in data], ignore_index=True)
         if len(sigs):
             sigs["smt"] = smt_flags(sigs, data)

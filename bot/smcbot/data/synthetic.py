@@ -9,15 +9,14 @@ import numpy as np
 import pandas as pd
 
 from smcbot.config import NY_TZ
+from smcbot.data.bars import drop_weekend
 
 
 def make_m1(start="2024-01-07 17:00", days=60, seed=7, price=1.0850,
             spread_pips=1.0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     idx = pd.date_range(pd.Timestamp(start, tz=NY_TZ), periods=days * 1440, freq="1min")
-    wd, hr = idx.weekday, idx.hour
-    weekend = ((wd == 4) & (hr >= 17)) | (wd == 5) | ((wd == 6) & (hr < 17))
-    idx = idx[~weekend]
+    idx = drop_weekend(pd.DataFrame(index=idx)).index
     hr = idx.hour
     vol = np.full(len(idx), 0.6)                      # pips per minute, Asia
     vol[(hr >= 2) & (hr < 5)] = 1.6                   # London open

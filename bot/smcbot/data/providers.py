@@ -10,6 +10,7 @@ spread (pips), the format the rest of the bot expects.
 from __future__ import annotations
 
 import logging
+import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,17 +18,11 @@ from pathlib import Path
 import pandas as pd
 
 from smcbot.config import NY_TZ
-from smcbot.data.bars import load_mt5_csv
+from smcbot.data.bars import drop_weekend, load_mt5_csv
 
 log = logging.getLogger("smcbot.data")
 
-DUKAS_CODES = {"EURUSD": "EUR/USD", "GBPUSD": "GBP/USD", "DXY": "DOLLAR.IDX/USD"}
-
-
-def _drop_weekend(df: pd.DataFrame) -> pd.DataFrame:
-    wd, hr = df.index.weekday, df.index.hour
-    weekend = ((wd == 4) & (hr >= 17)) | (wd == 5) | ((wd == 6) & (hr < 17))
-    return df[~weekend]
+DUKAS_CODES = {"EURUSD": "EUR/USD", "GBPUSD": "GBP/USD"}
 
 
 def _month_ranges(start: pd.Timestamp, end: pd.Timestamp):
@@ -42,6 +37,7 @@ def _fetch_dukascopy_month(code: str, a: pd.Timestamp, b: pd.Timestamp, side: st
                            retries: int = 3) -> pd.DataFrame:
     import dukascopy_python as dk
     offer = dk.OFFER_SIDE_BID if side == "bid" else dk.OFFER_SIDE_ASK
+    socket.setdefaulttimeout(60)   # dukascopy_python calls requests.get without a timeout; urllib3 falls back to this
     for attempt in range(retries):
         try:
             return dk.fetch(code, dk.INTERVAL_MIN_1, offer,
@@ -87,7 +83,7 @@ def load_dukascopy(symbol: str, start: str, end: str | None, data_dir: str,
     df.index.name = "time"
     if "spread" in df:
         df["spread"] = df["spread"].fillna(df["spread"].median())
-    return _drop_weekend(df[(df["high"] >= df["low"])])
+    return drop_weekend(df[(df["high"] >= df["low"])])
 
 
 def load_csv_files(pattern: str, server_tz: str) -> pd.DataFrame:

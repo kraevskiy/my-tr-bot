@@ -115,12 +115,3 @@ def find_obs(df: pd.DataFrame, bar: pd.Timedelta, fvgs: pd.DataFrame,
                         "swept": bool(swept), "time": idx[k],
                         "known_at": idx[eng] + bar, "invalid_at": inv})
     return pd.DataFrame(out)
-
-
-def active_at(zones: pd.DataFrame, t: pd.Timestamp, d: int | None = None) -> pd.DataFrame:
-    if zones is None or not len(zones):
-        return zones
-    m = (zones["known_at"] <= t) & (zones["invalid_at"].isna() | (zones["invalid_at"] > t))
-    if d is not None:
-        m &= zones["dir"] == d
-    return zones[m]

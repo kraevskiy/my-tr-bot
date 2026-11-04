@@ -21,6 +21,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from smcbot.config import NY_TZ
+
 SERIES_1, SERIES_2 = "#2a78d6", "#eb6834"      # validated categorical slots 1-2
 INK, INK_2, GRID = "#0b0b0b", "#52514e", "#e6e5e1"
 
@@ -47,7 +49,7 @@ def _style(ax, title):
 def load_trades(path: str | Path) -> pd.DataFrame:
     t = pd.read_csv(path)
     f = t[t["status"] == "filled"].copy()
-    f["ts"] = pd.to_datetime(f["signal_time"], utc=True).dt.tz_convert("America/New_York")
+    f["ts"] = pd.to_datetime(f["signal_time"], utc=True).dt.tz_convert(NY_TZ)
     return f.sort_values("ts").reset_index(drop=True)
 
 
@@ -104,7 +106,7 @@ def breakdowns(f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     g["setup_base"] = g["setup"].astype(str).str.split("+").str[0]
     if "risk_pips" in g and g["risk_pips"].notna().sum() > 8:
         g["stop_quartile"] = pd.qcut(g["risk_pips"], 4, duplicates="drop").astype(str)
-    # news context (trades from v0.7 runs carry news_* columns; older files: annotate here)
+    # news context (trades from newer runs carry news_* columns; older files: annotate here)
     if "news_bucket" not in g:
         try:
             from smcbot.market.news import annotate, load_default

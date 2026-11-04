@@ -1,0 +1,9 @@
+{"_about": "Round 13: AF breakeven after +X R (31 % of AF stops reached +1R first) and the Asia window for trade frequency, on top of v6. Judge: IS (<=2025) t>=2 on R_w; OOS 2026 w_avgR and w_maxDD not worse than V6; better in >=2 of 3 years; paired neighbours for passers.", "preset": "v6", "base": {}, "modes": "c", "variants": [
+ {"name": "V6", "group": "control", "why": "v6 as published", "params": {}, "log": true},
+ {"name": "V5", "group": "control", "why": "v5 (block)", "params": {"corr_second_risk_mult": 0.0}},
+ {"name": "AF_BE075", "group": "af", "why": "AF stop to entry after +0.75R", "params": {"af_be_at_r": 0.75}},
+ {"name": "AF_BE10", "group": "af", "why": "AF stop to entry after +1R", "params": {"af_be_at_r": 1.0}, "log": true},
+ {"name": "AF_BE15", "group": "af", "why": "AF stop to entry after +1.5R", "params": {"af_be_at_r": 1.5}},
+ {"name": "EXT_ASIA", "group": "freq", "why": "Asia window 19:00-24:00 NY for frequency (r11 H3a on v6)", "params": {"killzone_set": "ext_asia"}, "log": true},
+ {"name": "EXT_ASIA_BE10", "group": "freq", "why": "Asia window + AF BE 1R", "params": {"killzone_set": "ext_asia", "af_be_at_r": 1.0}}
+]}

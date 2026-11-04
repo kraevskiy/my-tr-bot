@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from smcbot.config import NY_TZ
 from smcbot.data.bars import TF_DELTA, from_trading_time, to_trading_time
 from smcbot.market.sessions import daily_levels, monthly_levels, weekly_levels
 from smcbot.market.structure import swing_levels
@@ -90,7 +91,7 @@ def build_pools(m1: pd.DataFrame, tfs: dict, fractal_n: dict,
             rows.append((asia_end, al, -1, "MEDIUM", "ASIA_L"))
     # MEDIUM: London session range 02:00-05:00 NY (known at 05:00 NY). Used only when
     # cfg.session_pools is on (setups filter names starting with "LON" otherwise).
-    idx_ny = m1.index.tz_convert("America/New_York")
+    idx_ny = m1.index.tz_convert(NY_TZ)
     mins = idx_ny.hour * 60 + idx_ny.minute
     lm = (mins >= 120) & (mins < 300)
     if lm.any():
@@ -117,11 +118,3 @@ def build_pools(m1: pd.DataFrame, tfs: dict, fractal_n: dict,
     pools["taken_ns"] = taken
     pools["rank"] = pools["tier"].map(TIER_RANK)
     return pools
-
-
-def untaken_at(pools: pd.DataFrame, t_ns, d: int) -> pd.DataFrame:
-    """Pools on side d that exist and are still untaken at time t (naive UTC ns)."""
-    m = (pools["dir"].values == d) & (pools["known_ns"].values <= t_ns)
-    tk = pools["taken_ns"].values
-    m &= np.isnat(tk) | (tk > t_ns)
-    return pools[m]

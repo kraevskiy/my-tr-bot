@@ -101,14 +101,16 @@ def resample(m1: pd.DataFrame, tf: str) -> pd.DataFrame:
     return out
 
 
+def drop_weekend(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop the weekend gap: Fri 17:00 -> Sun 17:00 NY."""
+    wd, hr = df.index.weekday, df.index.hour
+    weekend = ((wd == 4) & (hr >= 17)) | (wd == 5) | ((wd == 6) & (hr < 17))
+    return df[~weekend]
+
+
 def build_timeframes(m1: pd.DataFrame, tfs) -> dict[str, pd.DataFrame]:
     out = {"1min": m1}
     for tf in tfs:
         if tf not in out:
             out[tf] = resample(m1, tf)
     return out
-
-
-def close_time(df: pd.DataFrame, tf: str) -> pd.Series:
-    """Time at which each bar is complete (usable without look-ahead)."""
-    return pd.Series(df.index + TF_DELTA[tf], index=df.index)

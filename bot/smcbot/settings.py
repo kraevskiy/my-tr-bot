@@ -19,7 +19,7 @@ def _b(name: str, default: bool) -> bool:
 
 @dataclass
 class Settings:
-    data_source: str = "dukascopy"
+    data_source: str = "csv"
     symbols: list = field(default_factory=lambda: ["EURUSD", "GBPUSD"])
     date_from: str = "2024-01-01"
     date_to: str | None = None
@@ -28,7 +28,7 @@ class Settings:
     csv_paths: dict = field(default_factory=dict)
     mt5_server_tz: str = "ny_close"
     dukascopy_fetch_ask: bool = True
-    modes: str = "abcd"
+    modes: str = "c"
     log_level: str = "INFO"
 
 
@@ -47,7 +47,12 @@ def load_settings() -> tuple[Settings, Config]:
     )
     s.csv_paths = {k[4:]: v for k, v in os.environ.items() if k.startswith("CSV_") and v}
 
-    cfg = Config()
+    from smcbot.config import PRESETS
+    preset = os.getenv("STRATEGY", "v6").strip().lower() or "v6"     # final strategy by default
+    if preset not in PRESETS:
+        raise ValueError(f"STRATEGY must be one of {sorted(PRESETS)}")
+    cfg = Config().replace(**PRESETS[preset])
+    # named env vars apply on top of the preset, only when set
     cfg.risk_pct = _f("RISK_PCT", cfg.risk_pct * 100) / 100
     cfg.daily_max_loss_pct = _f("DAILY_MAX_LOSS_PCT", cfg.daily_max_loss_pct * 100) / 100
     cfg.daily_max_sl = int(_f("DAILY_MAX_SL", cfg.daily_max_sl))
@@ -62,12 +67,6 @@ def load_settings() -> tuple[Settings, Config]:
     # Generic overrides: CFG_<FIELD>=<json or text>, e.g. CFG_KILLZONE_SET=extended,
     # CFG_MIN_SL_PIPS=5, CFG_NEWS_MODE=block, CFG_SWEEP_POOLS=["ASIA","LON"]
     import json
-    from smcbot.config import PRESETS
-    preset = os.getenv("STRATEGY", "v6").strip().lower() or "v6"     # final strategy by default
-    if preset:
-        if preset not in PRESETS:
-            raise ValueError(f"STRATEGY must be one of {sorted(PRESETS)}")
-        cfg = cfg.replace(**PRESETS[preset])
     over = {}
     for k, v in os.environ.items():
         if k.startswith("CFG_") and v.strip():

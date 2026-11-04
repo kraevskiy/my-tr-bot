@@ -29,8 +29,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from smcbot.config import NY_TZ
+
 NEWS_URL = "https://github.com/janickfarrell/newfac/releases/download/calendar-data/forexfactory_calendar.csv"
-PAIR_CCY = {"EURUSD": ("USD", "EUR"), "GBPUSD": ("USD", "GBP"), "DXY": ("USD",)}
+PAIR_CCY = {"EURUSD": ("USD", "EUR"), "GBPUSD": ("USD", "GBP")}
 TIER1 = [
     ("NFP", r"^Non-Farm Employment Change"),
     ("CPI", r"^(Core )?CPI (m/m|y/y)"),
@@ -111,7 +113,7 @@ def _events_for(cal: pd.DataFrame, symbol: str, high_only=True, tier1_only=False
 def _naive(s: pd.Series) -> np.ndarray:
     s = pd.to_datetime(s)
     if s.dt.tz is None:
-        s = s.dt.tz_localize("America/New_York")
+        s = s.dt.tz_localize(NY_TZ)
     return s.dt.tz_convert("UTC").dt.tz_localize(None).values.astype("datetime64[ns]")
 
 
@@ -145,9 +147,9 @@ def annotate(df: pd.DataFrame, cal: pd.DataFrame, time_col: str = "signal_time")
         out.loc[g.index, "news_next"] = [names[j] if ok and not np.isnan(nm) else ""
                                          for j, ok, nm in zip(k, next_ok, next_min)]
         # tier-1 events on the same NY calendar day
-        ev_day = pd.DatetimeIndex(ns[t1]).tz_localize("UTC").tz_convert("America/New_York").strftime("%Y-%m-%d")
+        ev_day = pd.DatetimeIndex(ns[t1]).tz_localize("UTC").tz_convert(NY_TZ).strftime("%Y-%m-%d")
         day_map = pd.Series(tags[t1]).groupby(ev_day).agg(lambda x: "+".join(sorted(set(x)))).to_dict()
-        g_day = pd.DatetimeIndex(t).tz_localize("UTC").tz_convert("America/New_York").strftime("%Y-%m-%d")
+        g_day = pd.DatetimeIndex(t).tz_localize("UTC").tz_convert(NY_TZ).strftime("%Y-%m-%d")
         out.loc[g.index, "news_day"] = [day_map.get(d, "") for d in g_day]
         if "fill_time" in g and "exit_time" in g:
             ft, et = g["fill_time"], g["exit_time"]
@@ -167,7 +169,7 @@ def annotate(df: pd.DataFrame, cal: pd.DataFrame, time_col: str = "signal_time")
         np.where(out["news_day"] != "", "day_tier1", "none"))))
     out["news_bucket"] = b
     H = holidays(cal)
-    days = pd.to_datetime(out[time_col]).dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d") \
+    days = pd.to_datetime(out[time_col]).dt.tz_convert(NY_TZ).dt.strftime("%Y-%m-%d") \
         if pd.to_datetime(out[time_col]).dt.tz is not None else pd.to_datetime(out[time_col]).dt.strftime("%Y-%m-%d")
     out["holiday"] = ["+".join(c for c in (sym[:3], sym[3:6]) if d in H.get(c, set()))
                       for d, sym in zip(days, out["symbol"])]
@@ -176,10 +178,10 @@ def annotate(df: pd.DataFrame, cal: pd.DataFrame, time_col: str = "signal_time")
 
 def news_filter(sigs: pd.DataFrame, cal: pd.DataFrame, cfg) -> tuple[pd.DataFrame, int]:
     """Apply cfg.news_mode to signals. Returns (kept, n_dropped)."""
-    mode = getattr(cfg, "news_mode", "off")
+    mode = cfg.news_mode
     if mode == "off" or not len(sigs) or cal is None or not len(cal):
         return sigs, 0
-    tier1 = getattr(cfg, "news_scope", "high") == "tier1"
+    tier1 = cfg.news_scope == "tier1"
     keep = np.ones(len(sigs), bool)
     for sym, g in sigs.groupby("symbol"):
         ns, _, tags = _events_for(cal, sym, tier1_only=tier1)
@@ -201,8 +203,8 @@ def news_filter(sigs: pd.DataFrame, cal: pd.DataFrame, cfg) -> tuple[pd.DataFram
             dt = np.where(ok, (ext - ns[np.maximum(k, 0)]) / np.timedelta64(1, "m"), np.inf)
             keep[pos] &= ok & (dt <= cfg.news_after_min)
         elif mode == "no_day":
-            d_ev = set(pd.DatetimeIndex(ns).tz_localize("UTC").tz_convert("America/New_York").strftime("%Y-%m-%d"))
-            d_sig = pd.DatetimeIndex(t).tz_localize("UTC").tz_convert("America/New_York").strftime("%Y-%m-%d")
+            d_ev = set(pd.DatetimeIndex(ns).tz_localize("UTC").tz_convert(NY_TZ).strftime("%Y-%m-%d"))
+            d_sig = pd.DatetimeIndex(t).tz_localize("UTC").tz_convert(NY_TZ).strftime("%Y-%m-%d")
             keep[pos] &= ~np.isin(np.array(d_sig), list(d_ev))
         else:
             raise ValueError(f"unknown news_mode {mode}")
@@ -236,11 +238,11 @@ def holidays(cal: pd.DataFrame) -> dict[str, set]:
 
 def holiday_filter(sigs: pd.DataFrame, cal: pd.DataFrame, cfg) -> tuple[pd.DataFrame, int]:
     """cfg.holiday_mode: us_ny | any | any_ny (see Config)."""
-    mode = getattr(cfg, "holiday_mode", "off")
+    mode = cfg.holiday_mode
     if mode == "off" or not len(sigs) or cal is None:
         return sigs, 0
     H = holidays(cal)
-    day = pd.to_datetime(sigs["signal_time"]).dt.tz_convert("America/New_York").dt.strftime("%Y-%m-%d")
+    day = pd.to_datetime(sigs["signal_time"]).dt.tz_convert(NY_TZ).dt.strftime("%Y-%m-%d")
     ny = sigs["killzone"].astype(str).eq("NY") if "killzone" in sigs else pd.Series(True, index=sigs.index)
     us = day.isin(H.get("USD", set()))
     anyh = pd.Series([d in H.get(sym[:3], set()) or d in H.get(sym[3:6], set())

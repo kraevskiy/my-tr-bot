@@ -5,7 +5,7 @@
 Кожен шар залежить лише від шарів вище. Ринкові об'єкти не знають про стратегію; стратегія не знає, як виконуються угоди.
 
 ```
-config.py / settings.py   Config (усі параметри), Instrument, PRESETS (course, v1–v6, v5_core, af_only, v3_asia), .env → Config
+config.py / settings.py   Config (усі параметри), Instrument, PRESETS (course, v1–v6), .env → Config
         │
 data/                     M1-бари → New York time → таймфрейми M3…W1
         │
@@ -18,7 +18,7 @@ engine/backtest.py        simulate_trade (M1, спред, часткова, ст
         │
 research/                 analytics (HTML-звіт) · sessions (дослідження сесій)
         │
-apps/ + cli.py            backtest · experiments · analyze · news · sessions · presets · config
+apps/ + cli.py            backtest · experiments · analyze · news · sessions · prop · neighbours · presets · config
 ```
 
 ## Потік даних
@@ -68,7 +68,7 @@ CSV / MT5 / Dukascopy ──► data.providers.load_symbol ──► M1 DataFram
 |---|---|
 | `config.py` | `Config` (вікна, фільтри, вхід, вихід, ризик, класи, новини), `Instrument`, `PRESETS`, `killzones()` |
 | `settings.py` | `.env` → `Settings` (джерело даних, шляхи) + `Config` (пресет, `CFG_*`) |
-| `data/bars.py` | читання MT5 CSV (кодування, час сервера → NY), торговий день 17:00 NY, ресемплінг |
+| `data/bars.py` | читання MT5 CSV (кодування, час сервера → NY), торговий день 17:00 NY, ресемплінг, `drop_weekend` |
 | `data/providers.py`, `data/mt5.py` | джерела `csv` / `dukascopy` (кеш по місяцях) / `mt5` (Windows) |
 | `data/synthetic.py` | синтетичні M1 для тестів і швидких перевірок |
 | `market/sessions.py` | killzones, Азія, CBDR, денні/тижневі/місячні рівні, NY-midnight open |
@@ -79,10 +79,11 @@ CSV / MT5 / Dukascopy ──► data.providers.load_symbol ──► M1 DataFram
 | `market/news.py` | календар ForexFactory, свята, контекст новин для угод, фільтри новин і свят |
 | `strategy/setups.py` | `find_shifts`, `SideModel` (кандидати, фільтри, вхід, стоп, ціль, клас A/B), `SymbolModels` (додає сигнали AF) |
 | `strategy/asia_fake.py` | `build_m5`, `asia_fake_signals` — сетап AF; ринковий ордер, `risk_mult = af_risk_mult`, без часткової |
-| `engine/backtest.py` | `simulate_trade`, `run_backtest` (денні ліміти, 1 позиція на пару, кореляція; заблоковані сигнали лишаються в угодах зі статусами `blocked_*` і `shadow_R`; правило кореляції пар: блок / повний ризик / зменшений — `corr_second_risk_mult`; стрес виконання — `fill_through_pips`), `metrics`, `summarize` |
+| `engine/backtest.py` | `simulate_trade`, `run_backtest` (денні ліміти, 1 позиція на пару, кореляція; заблоковані сигнали лишаються в угодах зі статусами `blocked_*` і `shadow_R`; правило кореляції пар: блок / повний ризик / зменшений — `corr_second_risk_mult`; стрес виконання — `fill_through_pips`; беззбиток AF — `af_be_at_r`, вихід `SL_BE`, за замовчуванням вимкнено), `metrics`, `summarize` |
 | `research/analytics.py` | HTML-звіт: статистика, bootstrap, Monte Carlo, розрізи, walk-forward, графіки |
 | `research/sessions.py` | таблиця сесій по днях і зв'язки між ними |
 | `apps/neighbours.py` | `neighbours`: випадкові сусіди пресету ±pct → experiments JSON; `--summarize` — вердикти робастності |
+| `apps/prop.py` | `prop`: симулятор двофазного проп-челенджу (rolling-старти і bootstrap по місяцях, лише закриті угоди, `--mae`) |
 | `apps/*.py`, `cli.py` | команди |
 
 ## Як додати нову ідею
